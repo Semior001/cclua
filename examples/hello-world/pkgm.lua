@@ -10,7 +10,8 @@ return {
   -- Installation function - called when package is installed
   install = function(packageDir)
     -- Download main program file
-    local response = http.get("https://raw.githubusercontent.com/Semior001/cclua/main/examples/hello-world/hello.lua")
+    local mainFileUrl = "https://raw.githubusercontent.com/Semior001/cclua/main/examples/hello-world/hello.lua"
+    local response = http.get(mainFileUrl)
     if not response then
       error("Failed to download main program file")
     end
@@ -27,9 +28,9 @@ return {
   end,
   
   -- Main file to run when program is executed
-  main = "hello.lua",
+  main = "hello.lua"
   
-  -- Alternative: Run function can be defined instead of main
+  -- Alternative: Define a run function instead of specifying a main file
   -- run = function(...)
   --   local args = {...}
   --   print("Hello, " .. (args[1] or "World") .. "!")

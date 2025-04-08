@@ -16,8 +16,15 @@ pkgm install <url>     - Install a package from a pkgm.lua file URL
 pkgm update <package>  - Update an installed package
 pkgm list              - List all installed packages
 pkgm remove <package>  - Remove an installed package
+pkgm path              - Update PATH to include pkgm binaries
 pkgm help              - Show help
 ```
+
+### Features
+- Packages are structured based on their download URL
+- Installed packages are automatically added to PATH
+- Run installed packages directly without additional steps
+- Package structure mirrors the URL path from which they are downloaded
 
 ### Creating Packages
 Create a `pkgm.lua` file for your program with the following structure:
@@ -64,7 +71,7 @@ Install the example hello-world program:
 pkgm install https://raw.githubusercontent.com/Semior001/cclua/main/examples/hello-world/pkgm.lua
 ```
 
-Then run it:
+Then run it directly (it's automatically added to PATH):
 ```
 hello-world [your name]
 ```

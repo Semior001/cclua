@@ -1,5 +1,5 @@
 -- pkgm installer
--- Run with: pastebin run <code> OR wget run <url>
+-- Run with: wget run <url>
 
 -- URL to the latest version of pkgm
 local PKGM_URL = "https://raw.githubusercontent.com/Semior001/cclua/main/pkgm.lua"
@@ -21,7 +21,9 @@ file.write(content)
 file.close()
 
 -- Install pkgm
-shell.run("/pkgm.lua", "install")
+shell.run("/pkgm.lua")
 
 print("pkgm has been installed successfully!")
-print("Usage: pkgm install <url to pkgm.lua file>")
+print("You can now run commands from installed packages directly.")
+print("For example, to install a package:")
+print("pkgm install <url to pkgm.lua file>")
