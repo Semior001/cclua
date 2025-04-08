@@ -57,3 +57,14 @@ return {
 
 ### Examples
 See the `examples` directory for sample packages.
+
+#### Hello World Example
+Install the example hello-world program:
+```
+pkgm install https://raw.githubusercontent.com/Semior001/cclua/main/examples/hello-world/pkgm.lua
+```
+
+Then run it:
+```
+hello-world [your name]
+```
