@@ -13,7 +13,6 @@ wget run https://raw.githubusercontent.com/Semior001/cclua/main/install.lua
 ### Usage
 ```
 pkgm install <url>     - Install a package from a pkgm.lua file URL
-pkgm update <package>  - Update a specific package
 pkgm upgrade [pkg]     - Upgrade all packages or a specific package
 pkgm list              - List all installed packages
 pkgm remove <package>  - Remove an installed package
@@ -22,6 +21,7 @@ pkgm help              - Show help
 ```
 
 ### Features
+- Simple package definitions with file mappings
 - Packages are structured based on their download URL
 - Installed packages are automatically added to PATH
 - Run installed packages directly without additional steps
@@ -40,28 +40,34 @@ return {
   description = "Description of your package",
   author = "Your Name",
   
-  -- Installation function - called when package is installed
-  install = function(packageDir)
-    -- Download your program files
-    -- Example:
-    local response = http.get("https://example.com/your-program.lua")
-    local content = response.readAll()
-    response.close()
+  -- Main file to run when the program is executed
+  main = "main.lua",
+  
+  -- Files to download (key = local path, value = URL or file config)
+  files = {
+    -- Simple format: ["local-path"] = "url"
+    ["main.lua"] = "main.lua", -- Relative to pkgm.lua file location
     
-    local file = fs.open(packageDir .. "/your-program.lua", "w")
-    file.write(content)
-    file.close()
-  end,
-  
-  -- Either specify the main file to run
-  main = "your-program.lua",
-  
-  -- Or define a custom run function
-  run = function(...)
-    -- Code to run your program with args
-  end
+    -- You can use subfolders
+    ["lib/utils.lua"] = "lib/utils.lua",
+    
+    -- Use absolute URLs for files from different locations
+    ["examples/demo.lua"] = "https://example.com/demo.lua"
+  }
 }
 ```
+
+### Files Mapping
+The files mapping simplifies package installation by allowing you to declare all required files:
+
+1. **Simple form**: `["local-path"] = "url"`
+   - The local path where the file will be saved
+   - The URL can be relative (to the pkgm.lua location) or absolute
+
+2. **Advanced form**: `["local-path"] = { url = "url", other_options = value }`
+   - Allows for additional options per file in the future
+
+Relative URLs are automatically resolved based on the location of the pkgm.lua file.
 
 ### Examples
 See the `examples` directory for sample packages.
@@ -75,4 +81,9 @@ pkgm install https://raw.githubusercontent.com/Semior001/cclua/main/examples/hel
 Then run it directly (it's automatically added to PATH):
 ```
 hello-world [your name]
+```
+
+Try the fancy mode:
+```
+hello-world --fancy [your name]
 ```

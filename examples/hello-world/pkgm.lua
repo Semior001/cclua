@@ -7,30 +7,27 @@ return {
   description = "A simple hello world program",
   author = "cclua",
   
-  -- Installation function - called when package is installed
-  install = function(packageDir)
-    -- Download main program file
-    local mainFileUrl = "https://raw.githubusercontent.com/Semior001/cclua/main/examples/hello-world/hello.lua"
-    local response = http.get(mainFileUrl)
-    if not response then
-      error("Failed to download main program file")
-    end
-    
-    local content = response.readAll()
-    response.close()
-    
-    -- Save file to package directory
-    local file = fs.open(packageDir .. "/hello.lua", "w")
-    file.write(content)
-    file.close()
-    
-    print("Hello World program installed!")
-  end,
+  -- Main file to run when the program is executed
+  main = "hello.lua",
   
-  -- Main file to run when program is executed
-  main = "hello.lua"
+  -- Files to download (key = local path, value = URL or file config)
+  files = {
+    -- Simple format: ["local-path"] = "url"
+    ["hello.lua"] = "hello.lua", -- Will be downloaded relative to this pkgm.lua file
+    
+    -- You can use subfolders
+    ["lib/utils.lua"] = "lib/utils.lua",
+    
+    -- Use absolute URLs for files from other locations
+    ["examples/advanced.lua"] = "https://raw.githubusercontent.com/Semior001/cclua/main/examples/hello-world/examples/advanced.lua"
+  }
   
-  -- Alternative: Define a run function instead of specifying a main file
+  -- Legacy support for older versions of pkgm:
+  -- install = function(packageDir)
+  --   -- This function is no longer needed with the 'files' mapping above
+  -- end,
+  
+  -- Alternatively, you can define a custom run function instead of using 'main'
   -- run = function(...)
   --   local args = {...}
   --   print("Hello, " .. (args[1] or "World") .. "!")

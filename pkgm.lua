@@ -21,6 +21,12 @@ local function parseUrl(url)
   return domain, path
 end
 
+-- Helper function to extract directory from URL path
+local function getUrlDirectory(url)
+  local urlPath = url:match("^https?://[^/]+(.*)$") or url
+  return urlPath:match("(.+)/[^/]+$") or "/"
+end
+
 -- Helper function to get package name from URL path
 local function getPackageNameFromUrl(url)
   local _, path = parseUrl(url)
@@ -135,6 +141,54 @@ local function createBinSymlink(name, packagePath, mainFile)
   print("Created command '" .. name .. "' in PATH")
 end
 
+-- Function to download files specified in the files mapping
+local function downloadPackageFiles(packageInfo, packageDir, packageUrlBase)
+  if not packageInfo.files or type(packageInfo.files) ~= "table" then
+    print("Warning: No files specified in package definition")
+    return true
+  end
+  
+  -- Download all files specified in the package definition
+  for localPath, fileInfo in pairs(packageInfo.files) do
+    local fileUrl
+    local fileContent
+    
+    if type(fileInfo) == "string" then
+      -- Simple format: files = { ["path/file.lua"] = "url" }
+      fileUrl = fileInfo
+    elseif type(fileInfo) == "table" and fileInfo.url then
+      -- Advanced format: files = { ["path/file.lua"] = { url = "url", executable = true } }
+      fileUrl = fileInfo.url
+    else
+      print("Error: Invalid file definition for " .. localPath)
+      return false
+    end
+    
+    -- If the URL is relative (doesn't start with http), make it absolute
+    if not fileUrl:match("^https?://") then
+      -- If packageUrlBase doesn't end with a slash, add one
+      if packageUrlBase:sub(-1) ~= "/" then
+        packageUrlBase = packageUrlBase .. "/"
+      end
+      fileUrl = packageUrlBase .. fileUrl
+    end
+    
+    -- Create directory structure for the file
+    local fileDirPath = fs.getDir(packageDir .. "/" .. localPath)
+    if fileDirPath ~= "" then
+      fs.makeDir(fileDirPath)
+    end
+    
+    -- Download the file
+    if not download(fileUrl, packageDir .. "/" .. localPath) then
+      print("Failed to download " .. fileUrl)
+      return false
+    end
+  end
+  
+  return true
+end
+
 -- Function to install a package from a pkgm.lua file
 local function installPackage(packageUrl)
   print("Installing package from " .. packageUrl)
@@ -142,6 +196,7 @@ local function installPackage(packageUrl)
   -- Parse URL to determine storage structure
   local domain, urlPath = parseUrl(packageUrl)
   local urlDirPath = urlPath:match("(.*)/[^/]+%.lua$") or "/"
+  local baseUrl = packageUrl:match("(.+)/[^/]+$") or ""
   local suggestedName = getPackageNameFromUrl(packageUrl)
   
   -- Download the package definition file
@@ -181,9 +236,15 @@ local function installPackage(packageUrl)
       -- Copy the package definition
       fs.copy(tempPath, packageDir .. "/pkgm.lua")
       
-      -- Run the install function if it exists
+      -- Download files specified in the package definition
+      if not downloadPackageFiles(packageInfo, packageDir, baseUrl) then
+        print("Error downloading package files")
+        return false
+      end
+      
+      -- For backward compatibility, run the install function if it exists
       if type(packageInfo.install) == "function" then
-        print("Running install script...")
+        print("Running legacy install script...")
         local installSuccess, installError = pcall(packageInfo.install, packageDir)
         if not installSuccess then
           print("Error during installation: " .. tostring(installError))
@@ -192,28 +253,24 @@ local function installPackage(packageUrl)
       end
       
       -- Create an executable for the package
-      if type(packageInfo.run) == "function" or packageInfo.main then
-        -- Create a run script
-        local runScript
-        if type(packageInfo.run) == "function" then
-          -- For packages with a run function
-          runScript = [[
+      if packageInfo.main then
+        -- For packages with a main file
+        createBinSymlink(name, packageDir, packageInfo.main)
+      elseif type(packageInfo.run) == "function" then
+        -- For packages with a run function (legacy support)
+        local runScript = [[
 local args = {...}
 local pkg = loadfile("PACKAGE_DIR/pkgm.lua")()
 return pkg.run(unpack(args))
-          ]]
-          runScript = runScript:gsub("PACKAGE_DIR", packageDir)
-          
-          fs.makeDir(packageDir .. "/bin")
-          local runFile = fs.open(packageDir .. "/bin/run.lua", "w")
-          runFile.write(runScript)
-          runFile.close()
-          
-          createBinSymlink(name, packageDir .. "/bin", "run.lua")
-        elseif packageInfo.main then
-          -- For packages with a main file
-          createBinSymlink(name, packageDir, packageInfo.main)
-        end
+        ]]
+        runScript = runScript:gsub("PACKAGE_DIR", packageDir)
+        
+        fs.makeDir(packageDir .. "/bin")
+        local runFile = fs.open(packageDir .. "/bin/run.lua", "w")
+        runFile.write(runScript)
+        runFile.close()
+        
+        createBinSymlink(name, packageDir .. "/bin", "run.lua")
       end
       
       fs.delete(tempPath)
@@ -343,15 +400,15 @@ local function removePackage(name)
   return removed
 end
 
--- Function to update a package with a given name
-local function updatePackage(name, url)
-  print("Updating package: " .. name)
+-- Function to upgrade a package with a given name
+local function upgradePackage(name, url)
+  print("Upgrading package: " .. name)
   
   if removePackage(name) then
     if url then
       return installPackage(url)
     else
-      print("Package URL not found. Cannot update.")
+      print("Package URL not found. Cannot upgrade.")
       return false
     end
   else
@@ -362,6 +419,12 @@ end
 -- Function to upgrade all packages or a specific package
 local function upgradePackages(specificPackage)
   if specificPackage then
+    -- Check if specificPackage is a URL
+    if specificPackage:match("^https?://") then
+      local packageName = getPackageNameFromUrl(specificPackage)
+      return upgradePackage(packageName, specificPackage)
+    end
+    
     -- Upgrade a specific package
     local found = false
     
@@ -370,7 +433,7 @@ local function upgradePackages(specificPackage)
     for _, pkg in ipairs(allPackages) do
       if pkg.name == specificPackage then
         print("Upgrading " .. pkg.name .. " from " .. pkg.url)
-        updatePackage(pkg.name, pkg.url)
+        upgradePackage(pkg.name, pkg.url)
         found = true
         break
       end
@@ -394,7 +457,7 @@ local function upgradePackages(specificPackage)
     
     for _, pkg in ipairs(allPackages) do
       print("\nUpgrading " .. pkg.name .. " from " .. pkg.url)
-      if updatePackage(pkg.name, pkg.url) then
+      if upgradePackage(pkg.name, pkg.url) then
         upgradeCount = upgradeCount + 1
       end
     end
@@ -423,31 +486,6 @@ if command == "install" then
   else
     print("Usage: pkgm install <url>")
   end
-elseif command == "update" then
-  if target then
-    print("Updating " .. target)
-    -- Assume the target is a URL if it starts with http
-    if target:match("^https?://") then
-      local packageName = getPackageNameFromUrl(target)
-      updatePackage(packageName, target)
-    else
-      -- First try to find and upgrade the package
-      local allPackages = getAllPackages()
-      local url
-      
-      -- Find the URL for the named package
-      for _, pkg in ipairs(allPackages) do
-        if pkg.name == target then
-          url = pkg.url
-          break
-        end
-      end
-      
-      updatePackage(target, url)
-    end
-  else
-    print("Usage: pkgm update <package>")
-  end
 elseif command == "upgrade" then
   -- Upgrade a specific package or all packages
   upgradePackages(target)
@@ -473,7 +511,6 @@ elseif command == "help" then
   print("pkgm - Package Manager for ComputerCraft")
   print("Commands:")
   print("  install <url>    - Install a package from URL")
-  print("  update <package> - Update a specific package")
   print("  upgrade [pkg]    - Upgrade all packages or a specific package")
   print("  list            - List installed packages")
   print("  remove <package> - Remove an installed package")
