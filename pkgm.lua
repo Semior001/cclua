@@ -1,5 +1,6 @@
 -- pkgm: Package Manager for ComputerCraft
 -- Usage: pkgm install <link to pkgm.lua file>
+-- Made with Claude Code (https://claude.ai/code)
 
 local args = {...}
 local command = args[1]

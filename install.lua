@@ -1,5 +1,6 @@
 -- pkgm installer
 -- Run with: wget run <url>
+-- Made with Claude Code (https://claude.ai/code)
 
 -- URL to the latest version of pkgm
 local PKGM_URL = "https://raw.githubusercontent.com/Semior001/cclua/main/pkgm.lua"

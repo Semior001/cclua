@@ -1,6 +1,8 @@
 # cclua
 A set of ComputerCraft programs, easy to use and install
 
+_Made with [Claude Code](https://claude.ai/code) 🤖_
+
 ## pkgm
 A simple package manager for ComputerCraft that makes it easy to install and manage programs.
 

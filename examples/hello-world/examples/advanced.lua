@@ -1,4 +1,5 @@
 -- Advanced example for hello-world package
+-- Made with Claude Code (https://claude.ai/code)
 
 print("This is an advanced example of the hello-world package")
 print("It demonstrates downloading files from multiple locations")

@@ -1,4 +1,5 @@
 -- Example package definition for pkgm
+-- Made with Claude Code (https://claude.ai/code)
 
 return {
   -- Basic package information

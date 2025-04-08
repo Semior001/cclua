@@ -1,4 +1,5 @@
 -- Utility functions for the hello-world package
+-- Made with Claude Code (https://claude.ai/code)
 
 local utils = {}
 

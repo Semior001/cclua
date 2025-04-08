@@ -1,4 +1,5 @@
 -- Hello World program
+-- Made with Claude Code (https://claude.ai/code)
 
 local function showUsage()
   print("Usage: hello-world [options] [name]")
