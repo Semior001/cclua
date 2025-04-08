@@ -247,10 +247,8 @@ local function handleStartup()
   end
 end
 
--- Function to list all installed packages
-local function listPackages()
-  print("Installed packages:")
-  
+-- Function to get all installed packages
+local function getAllPackages()
   local allPackages = {}
   
   -- Walk through the packages directory structure
@@ -278,6 +276,14 @@ local function listPackages()
   end
   
   scanDir("/pkgm/packages", "")
+  return allPackages
+end
+
+-- Function to list all installed packages
+local function listPackages()
+  print("Installed packages:")
+  
+  local allPackages = getAllPackages()
   
   if #allPackages == 0 then
     print("No packages installed")
@@ -337,6 +343,68 @@ local function removePackage(name)
   return removed
 end
 
+-- Function to update a package with a given name
+local function updatePackage(name, url)
+  print("Updating package: " .. name)
+  
+  if removePackage(name) then
+    if url then
+      return installPackage(url)
+    else
+      print("Package URL not found. Cannot update.")
+      return false
+    end
+  else
+    return false
+  end
+end
+
+-- Function to upgrade all packages or a specific package
+local function upgradePackages(specificPackage)
+  if specificPackage then
+    -- Upgrade a specific package
+    local found = false
+    
+    -- Find the package info
+    local allPackages = getAllPackages()
+    for _, pkg in ipairs(allPackages) do
+      if pkg.name == specificPackage then
+        print("Upgrading " .. pkg.name .. " from " .. pkg.url)
+        updatePackage(pkg.name, pkg.url)
+        found = true
+        break
+      end
+    end
+    
+    if not found then
+      print("Package not found: " .. specificPackage)
+      return false
+    end
+  else
+    -- Upgrade all packages
+    local allPackages = getAllPackages()
+    
+    if #allPackages == 0 then
+      print("No packages installed")
+      return false
+    end
+    
+    print("Upgrading all packages...")
+    local upgradeCount = 0
+    
+    for _, pkg in ipairs(allPackages) do
+      print("\nUpgrading " .. pkg.name .. " from " .. pkg.url)
+      if updatePackage(pkg.name, pkg.url) then
+        upgradeCount = upgradeCount + 1
+      end
+    end
+    
+    print("\nUpgraded " .. upgradeCount .. " of " .. #allPackages .. " packages")
+  end
+  
+  return true
+end
+
 -- Create necessary directories
 fs.makeDir("/pkgm")
 fs.makeDir("/pkgm/packages")
@@ -358,30 +426,31 @@ if command == "install" then
 elseif command == "update" then
   if target then
     print("Updating " .. target)
-    -- First try to find and remove the package
-    if removePackage(target) then
-      -- Then find the info file to get the URL
-      -- Since we've removed it, we need to look for a cached URL
-      local packageUrl = target -- Default to assuming target is a URL
+    -- Assume the target is a URL if it starts with http
+    if target:match("^https?://") then
+      local packageName = getPackageNameFromUrl(target)
+      updatePackage(packageName, target)
+    else
+      -- First try to find and upgrade the package
+      local allPackages = getAllPackages()
+      local url
       
-      -- If it's not a URL, try to find a cached info file
-      if not target:match("^https?://") and fs.exists("/pkgm/cache/" .. target .. ".url") then
-        local urlFile = fs.open("/pkgm/cache/" .. target .. ".url", "r")
-        packageUrl = urlFile.readAll()
-        urlFile.close()
+      -- Find the URL for the named package
+      for _, pkg in ipairs(allPackages) do
+        if pkg.name == target then
+          url = pkg.url
+          break
+        end
       end
       
-      -- Install the package
-      if packageUrl then
-        installPackage(packageUrl)
-      else
-        print("Package URL not found. Please provide the URL:")
-        print("pkgm install <url>")
-      end
+      updatePackage(target, url)
     end
   else
     print("Usage: pkgm update <package>")
   end
+elseif command == "upgrade" then
+  -- Upgrade a specific package or all packages
+  upgradePackages(target)
 elseif command == "list" then
   listPackages()
 elseif command == "remove" or command == "uninstall" then
@@ -404,7 +473,8 @@ elseif command == "help" then
   print("pkgm - Package Manager for ComputerCraft")
   print("Commands:")
   print("  install <url>    - Install a package from URL")
-  print("  update <package> - Update an installed package")
+  print("  update <package> - Update a specific package")
+  print("  upgrade [pkg]    - Upgrade all packages or a specific package")
   print("  list            - List installed packages")
   print("  remove <package> - Remove an installed package")
   print("  path            - Update PATH to include pkgm binaries")

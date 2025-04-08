@@ -13,7 +13,8 @@ wget run https://raw.githubusercontent.com/Semior001/cclua/main/install.lua
 ### Usage
 ```
 pkgm install <url>     - Install a package from a pkgm.lua file URL
-pkgm update <package>  - Update an installed package
+pkgm update <package>  - Update a specific package
+pkgm upgrade [pkg]     - Upgrade all packages or a specific package
 pkgm list              - List all installed packages
 pkgm remove <package>  - Remove an installed package
 pkgm path              - Update PATH to include pkgm binaries
