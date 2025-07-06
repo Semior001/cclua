@@ -1,5 +1,11 @@
 {
     "diagnostics.globals": [
-        "peripheral"
+        "peripheral",
+        "rednet",
+        "fs",
+        "textutils"
+    ],
+    "diagnostics.disable": [
+        "lowercase-global"
     ]
 }

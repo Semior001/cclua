@@ -8,6 +8,10 @@ return {
   author = "cclua",
   main = "timetable.lua",
   files = {
-    ["timetable.lua"] = "timetable.lua"
+    ["timetable.lua"] = "timetable.lua",
+    ["master.lua"] = "master.lua",
+    ["station.lua"] = "station.lua",
+    ["monitor.lua"] = "monitor.lua",
+    ["lib/utils.lua"] = "lib/utils.lua"
   }
 }
