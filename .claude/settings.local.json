@@ -1,9 +1,10 @@
 {
-  "enableAllProjectMcpServers": false,
   "permissions": {
     "allow": [
       "Bash(git add:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "WebFetch(domain:github.com)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": false
 }
