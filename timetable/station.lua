@@ -49,7 +49,7 @@ function station.runRedstoneDetection(network)
         if station.redstoneActive() then
             -- Debounce signals
             if currentTime - lastSignalTime > minDelay then
-                print("Train detected via redstone on side: " .. side)
+                print("Train detected via redstone")
                 network.TrainArrived()
                 lastSignalTime = currentTime
             end
