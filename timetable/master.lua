@@ -211,3 +211,5 @@ function master.Run(branch, updateInterval)
         end
     end
 end
+
+return master

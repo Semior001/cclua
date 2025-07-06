@@ -46,65 +46,104 @@ function monitor.displayTimetable(monitors, timetable, branch)
     local currentTime = os.epoch("local")
 
     for _, mon in ipairs(monitors) do
+        local width, height = mon.getSize()
         mon.clear()
-        mon.setCursorPos(1, 1)
-
+        
+        -- Scale text to fit monitor
+        local textScale = 1
+        if width >= 164 then -- 7x7 monitor
+            textScale = 2
+        elseif width >= 82 then -- 5x5 monitor
+            textScale = 1.5
+        elseif width >= 50 then -- 3x3 monitor
+            textScale = 1
+        else -- smaller monitors
+            textScale = 0.5
+        end
+        mon.setTextScale(textScale)
+        
+        -- Recalculate dimensions after scaling
+        width, height = mon.getSize()
+        
         -- Header
-        mon.write("=== " .. string.upper(branch) .. " LINE TIMETABLE ===")
-        mon.setCursorPos(1, 2)
-        mon.write("Updated: " .. os.date("%X", currentTime / 1000))
+        mon.setCursorPos(1, 1)
+        local headerText = string.upper(branch) .. " LINE"
+        local headerPadding = math.floor((width - #headerText) / 2)
+        mon.write(string.rep(" ", headerPadding) .. headerText)
+        
+        -- Table header
         mon.setCursorPos(1, 3)
-        mon.write("----------------------------------------")
-
-        local row = 4
-
+        local timeHeader = "TIME"
+        local stationHeader = "STATION"
+        local timeColWidth = 8
+        local stationColWidth = width - timeColWidth - 3
+        
+        mon.write(" " .. timeHeader .. string.rep(" ", timeColWidth - #timeHeader - 1) .. "| " .. stationHeader)
+        
+        -- Separator line
+        mon.setCursorPos(1, 4)
+        mon.write(string.rep("-", width))
+        
+        local row = 5
+        
         -- Check if we have any timetable data
         if next(timetable) == nil then
             mon.setCursorPos(1, row)
-            mon.write("No timetable data available")
-            mon.setCursorPos(1, row + 1)
-            mon.write("Waiting for train arrivals...")
+            mon.write(" ~      | Waiting for trains...")
         else
-            -- Display each station
+            -- Sort stations by next arrival time
+            local stations = {}
             for stationName, data in pairs(timetable) do
-                if row > 18 then -- Assuming standard monitor height
+                table.insert(stations, {name = stationName, data = data})
+            end
+            
+            table.sort(stations, function(a, b)
+                return a.data.nextArrival < b.data.nextArrival
+            end)
+            
+            -- Display each station
+            for _, station in ipairs(stations) do
+                if row >= height then
                     break
                 end
-
+                
+                local stationName = station.name
+                local data = station.data
+                
                 mon.setCursorPos(1, row)
-                mon.write(stationName)
-
+                
                 -- Calculate time until next train
                 local timeUntilNext = data.nextArrival - currentTime
-                local minutesUntilNext = math.floor(timeUntilNext / 60000)
-                local secondsUntilNext = math.floor((timeUntilNext % 60000) / 1000)
-
-                mon.setCursorPos(1, row + 1)
-                if minutesUntilNext > 0 then
-                    mon.write("  Next: " .. minutesUntilNext .. "m " .. secondsUntilNext .. "s")
-                elseif secondsUntilNext > 0 then
-                    mon.write("  Next: " .. secondsUntilNext .. "s")
-                else
-                    mon.write("  Next: Now!")
+                local timeStr = "~"
+                
+                if timeUntilNext > 0 then
+                    local minutesUntilNext = math.floor(timeUntilNext / 60000)
+                    local secondsUntilNext = math.floor((timeUntilNext % 60000) / 1000)
+                    
+                    if minutesUntilNext > 0 then
+                        timeStr = minutesUntilNext .. "m " .. secondsUntilNext .. "s"
+                    elseif secondsUntilNext > 0 then
+                        timeStr = secondsUntilNext .. "s"
+                    else
+                        timeStr = "Now!"
+                    end
+                elseif timeUntilNext > -30000 then -- Within 30 seconds past
+                    timeStr = "Now!"
                 end
-
-                -- Show average interval
-                local avgMinutes = math.floor(data.avgInterval / 60000)
-                mon.setCursorPos(1, row + 2)
-                mon.write("  Freq: every " .. avgMinutes .. "m")
-
-                -- Show total arrivals
-                mon.setCursorPos(1, row + 3)
-                mon.write("  Arrivals: " .. data.totalArrivals)
-
-                row = row + 4
+                
+                -- Truncate station name if too long
+                local displayName = stationName
+                if #displayName > stationColWidth then
+                    displayName = string.sub(displayName, 1, stationColWidth - 3) .. "..."
+                end
+                
+                -- Format the row
+                local formattedTime = " " .. timeStr .. string.rep(" ", timeColWidth - #timeStr - 1)
+                mon.write(formattedTime .. "| " .. displayName)
+                
+                row = row + 1
             end
         end
-
-        -- Footer
-        local width, height = mon.getSize()
-        mon.setCursorPos(1, height)
-        mon.write("ComputerCraft Timetable System")
     end
 end
 
