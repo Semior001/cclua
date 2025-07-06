@@ -3,12 +3,15 @@ local monitor = {}
 -- Run - start the monitor node
 -- This node displays the timetable on connected monitors
 -- @param branch - the branch name for this monitor
-function monitor.Run(branch)
+-- @param scale - text scale for monitors (default: 1)
+function monitor.Run(branch, scale)
     local network = require("network")
 
     if not branch then
         error("Branch name is required")
     end
+    
+    scale = scale or 1
 
     network.Prepare("monitor", branch, "")
 
@@ -25,8 +28,8 @@ function monitor.Run(branch)
     -- Setup monitors
     for i, mon in ipairs(monitors) do
         mon.clear()
-        mon.setTextScale(1)
-        print("Initialized monitor " .. i)
+        mon.setTextScale(scale)
+        print("Initialized monitor " .. i .. " with scale " .. scale)
     end
 
     -- Main loop - wait for timetable updates
@@ -36,35 +39,18 @@ function monitor.Run(branch)
 
         if timetable then
             print("Received timetable update, displaying...")
-            monitor.displayTimetable(monitors, timetable, branch)
+            monitor.displayTimetable(monitors, timetable, branch, scale)
         end
     end
 end
 
 -- Display timetable on monitors
-function monitor.displayTimetable(monitors, timetable, branch)
+function monitor.displayTimetable(monitors, timetable, branch, scale)
     local currentTime = os.epoch("local")
 
     for _, mon in ipairs(monitors) do
-        -- Reset text scale to get original dimensions
-        mon.setTextScale(1)
-        local originalWidth, originalHeight = mon.getSize()
         mon.clear()
-
-        -- Scale text to fit monitor based on original dimensions
-        local textScale = 1
-        if originalWidth >= 164 then    -- 7x7 monitor
-            textScale = 2
-        elseif originalWidth >= 82 then -- 5x5 monitor
-            textScale = 1.5
-        elseif originalWidth >= 50 then -- 3x3 monitor
-            textScale = 1
-        else                    -- smaller monitors
-            textScale = 0.5
-        end
-        mon.setTextScale(textScale)
-
-        -- Get scaled dimensions for display calculations
+        mon.setTextScale(scale)
         local width, height = mon.getSize()
 
         -- Header

@@ -7,11 +7,12 @@ local function help()
     print("    --interval seconds - update interval for master mode (default: 5)")
     print("    --detection method - detection method for station mode")
     print("                        (redstone|detector|manual, default: redstone)")
+    print("    --scale number - text scale for monitor mode (default: 1)")
     print()
     print("Examples:")
     print("    timetable --mode master --branch red --interval 10")
     print("    timetable --mode station --branch red --station central --detection redstone")
-    print("    timetable --mode monitor --branch red")
+    print("    timetable --mode monitor --branch red --scale 0.5")
 end
 
 local function main(args)
@@ -20,7 +21,7 @@ local function main(args)
         return
     end
 
-    local mode, branchName, stationName, updateInterval, detectionMethod
+    local mode, branchName, stationName, updateInterval, detectionMethod, scale
 
     for i = 1, #args do
         if args[i] == "--mode" then
@@ -33,6 +34,8 @@ local function main(args)
             updateInterval = tonumber(args[i + 1])
         elseif args[i] == "--detection" then
             detectionMethod = args[i + 1]
+        elseif args[i] == "--scale" then
+            scale = tonumber(args[i + 1])
         end
     end
 
@@ -59,7 +62,7 @@ local function main(args)
     elseif mode == "station" then
         require("station").Run(branchName, stationName, detectionMethod)
     elseif mode == "monitor" then
-        require("monitor").Run(branchName)
+        require("monitor").Run(branchName, scale)
     end
 end
 
