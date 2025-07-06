@@ -132,7 +132,7 @@ local function findTrainStation()
     local stations = {}
     for _, name in pairs(peripheral.getNames()) do
         local type = peripheral.getType(name)
-        if type == "Create_TrainStation" then
+        if type == "Create_Station" then
             stations[#stations + 1] = peripheral.wrap(name)
         end
     end
