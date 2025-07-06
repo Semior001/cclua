@@ -1,8 +1,17 @@
 local function help()
     print("Usage: timetable [options]")
     print("Options:")
-    print("    --mode master|station|monitor - mode of the node")
-    print("    --branch name - name of the branch for station mode")
+    print("    --mode master|station|monitor - mode of the node (required)")
+    print("    --branch name - name of the branch (required)")
+    print("    --station name - name of the station (required for station mode)")
+    print("    --interval seconds - update interval for master mode (default: 5)")
+    print("    --detection method - detection method for station mode")
+    print("                        (redstone|detector|manual, default: redstone)")
+    print()
+    print("Examples:")
+    print("    timetable --mode master --branch red --interval 10")
+    print("    timetable --mode station --branch red --station central --detection redstone")
+    print("    timetable --mode monitor --branch red")
 end
 
 local function main(args)
@@ -11,15 +20,19 @@ local function main(args)
         return
     end
 
-    local mode, masterId, branchName
+    local mode, branchName, stationName, updateInterval, detectionMethod
 
     for i = 1, #args do
         if args[i] == "--mode" then
             mode = args[i + 1]
-        elseif args[i] == "--master" then
-            masterId = args[i + 1]
         elseif args[i] == "--branch" then
             branchName = args[i + 1]
+        elseif args[i] == "--station" then
+            stationName = args[i + 1]
+        elseif args[i] == "--interval" then
+            updateInterval = tonumber(args[i + 1])
+        elseif args[i] == "--detection" then
+            detectionMethod = args[i + 1]
         end
     end
 
@@ -29,12 +42,24 @@ local function main(args)
         return
     end
 
+    if not branchName then
+        print("Error: Missing --branch option")
+        help()
+        return
+    end
+
+    if mode == "station" and not stationName then
+        print("Error: Missing --station option for station mode")
+        help()
+        return
+    end
+
     if mode == "master" then
-        require("master").run(masterId)
+        require("master").Run(branchName, updateInterval)
     elseif mode == "station" then
-        require("station").run(branchName)
+        require("station").Run(branchName, stationName, detectionMethod)
     elseif mode == "monitor" then
-        require("monitor").run()
+        require("monitor").Run(branchName)
     end
 end
 
