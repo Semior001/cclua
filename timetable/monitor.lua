@@ -46,24 +46,26 @@ function monitor.displayTimetable(monitors, timetable, branch)
     local currentTime = os.epoch("local")
 
     for _, mon in ipairs(monitors) do
-        local width, height = mon.getSize()
+        -- Reset text scale to get original dimensions
+        mon.setTextScale(1)
+        local originalWidth, originalHeight = mon.getSize()
         mon.clear()
 
-        -- Scale text to fit monitor
+        -- Scale text to fit monitor based on original dimensions
         local textScale = 1
-        if width >= 164 then    -- 7x7 monitor
+        if originalWidth >= 164 then    -- 7x7 monitor
             textScale = 2
-        elseif width >= 82 then -- 5x5 monitor
+        elseif originalWidth >= 82 then -- 5x5 monitor
             textScale = 1.5
-        elseif width >= 50 then -- 3x3 monitor
+        elseif originalWidth >= 50 then -- 3x3 monitor
             textScale = 1
         else                    -- smaller monitors
             textScale = 0.5
         end
         mon.setTextScale(textScale)
 
-        -- Recalculate dimensions after scaling
-        width, height = mon.getSize()
+        -- Get scaled dimensions for display calculations
+        local width, height = mon.getSize()
 
         -- Header
         mon.setCursorPos(1, 1)
