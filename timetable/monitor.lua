@@ -48,44 +48,44 @@ function monitor.displayTimetable(monitors, timetable, branch)
     for _, mon in ipairs(monitors) do
         local width, height = mon.getSize()
         mon.clear()
-        
+
         -- Scale text to fit monitor
         local textScale = 1
-        if width >= 164 then -- 7x7 monitor
+        if width >= 164 then    -- 7x7 monitor
             textScale = 2
         elseif width >= 82 then -- 5x5 monitor
             textScale = 1.5
         elseif width >= 50 then -- 3x3 monitor
             textScale = 1
-        else -- smaller monitors
+        else                    -- smaller monitors
             textScale = 0.5
         end
         mon.setTextScale(textScale)
-        
+
         -- Recalculate dimensions after scaling
         width, height = mon.getSize()
-        
+
         -- Header
         mon.setCursorPos(1, 1)
         local headerText = string.upper(branch) .. " LINE"
         local headerPadding = math.floor((width - #headerText) / 2)
         mon.write(string.rep(" ", headerPadding) .. headerText)
-        
+
         -- Table header
         mon.setCursorPos(1, 3)
         local timeHeader = "TIME"
         local stationHeader = "STATION"
         local timeColWidth = 8
         local stationColWidth = width - timeColWidth - 3
-        
+
         mon.write(" " .. timeHeader .. string.rep(" ", timeColWidth - #timeHeader - 1) .. "| " .. stationHeader)
-        
+
         -- Separator line
         mon.setCursorPos(1, 4)
         mon.write(string.rep("-", width))
-        
+
         local row = 5
-        
+
         -- Check if we have any timetable data
         if next(timetable) == nil then
             mon.setCursorPos(1, row)
@@ -94,32 +94,32 @@ function monitor.displayTimetable(monitors, timetable, branch)
             -- Sort stations by next arrival time
             local stations = {}
             for stationName, data in pairs(timetable) do
-                table.insert(stations, {name = stationName, data = data})
+                table.insert(stations, { name = stationName, data = data })
             end
-            
+
             table.sort(stations, function(a, b)
                 return a.data.nextArrival < b.data.nextArrival
             end)
-            
+
             -- Display each station
             for _, station in ipairs(stations) do
                 if row >= height then
                     break
                 end
-                
+
                 local stationName = station.name
                 local data = station.data
-                
+
                 mon.setCursorPos(1, row)
-                
+
                 -- Calculate time until next train
                 local timeUntilNext = data.nextArrival - currentTime
                 local timeStr = "~"
-                
+
                 if timeUntilNext > 0 then
                     local minutesUntilNext = math.floor(timeUntilNext / 60000)
                     local secondsUntilNext = math.floor((timeUntilNext % 60000) / 1000)
-                    
+
                     if minutesUntilNext > 0 then
                         timeStr = minutesUntilNext .. "m " .. secondsUntilNext .. "s"
                     elseif secondsUntilNext > 0 then
@@ -130,17 +130,17 @@ function monitor.displayTimetable(monitors, timetable, branch)
                 elseif timeUntilNext > -30000 then -- Within 30 seconds past
                     timeStr = "Now!"
                 end
-                
+
                 -- Truncate station name if too long
                 local displayName = stationName
                 if #displayName > stationColWidth then
                     displayName = string.sub(displayName, 1, stationColWidth - 3) .. "..."
                 end
-                
+
                 -- Format the row
                 local formattedTime = " " .. timeStr .. string.rep(" ", timeColWidth - #timeStr - 1)
                 mon.write(formattedTime .. "| " .. displayName)
-                
+
                 row = row + 1
             end
         end

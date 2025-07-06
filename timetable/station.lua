@@ -42,17 +42,25 @@ function station.runRedstoneDetection(network)
     local minDelay = 5000 -- 5 seconds minimum between signals
 
     while true do
-        local event, side = os.pullEvent("redstone")
+        os.pullEvent("redstone")
         local currentTime = os.epoch("local")
 
         -- Check if redstone is currently on
-        if redstone.getInput(side) then
+        if station.redstoneActive() then
             -- Debounce signals
             if currentTime - lastSignalTime > minDelay then
                 print("Train detected via redstone on side: " .. side)
                 network.TrainArrived()
                 lastSignalTime = currentTime
             end
+        end
+    end
+end
+
+function station.redstoneActive()
+    for _, side in ipairs(redstone.getSides()) do
+        if redstone.getInput(side) then
+            return true, side
         end
     end
 end
