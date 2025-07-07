@@ -4,7 +4,8 @@ local master = {
     branch = nil,
     updateInterval = 5,
     dbFile = nil,
-    collectionComplete = false
+    collectionComplete = false,
+    maxArrivals = 10  -- Keep only the last 10 arrivals per station
 }
 
 -- Load database from JSON file
@@ -86,6 +87,13 @@ function master.recordArrival(stationName)
     end
 
     table.insert(master.trainArrivals[stationName], currentTime)
+    
+    -- Keep only the last maxArrivals entries
+    local arrivals = master.trainArrivals[stationName]
+    if #arrivals > master.maxArrivals then
+        table.remove(arrivals, 1)  -- Remove the oldest entry
+    end
+    
     print("Recorded train arrival at " .. stationName .. " at " .. os.date("%X", currentTime / 1000))
 end
 
