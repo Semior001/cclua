@@ -3,15 +3,11 @@
 
 return {
     name = "timetable",
-    version = "2.1.0",
+    version = "3.0.0",
     description = "Networked train timetable system for Create mod with route pattern detection",
     author = "cclua",
-    main = "timetable.lua",
+    main = "main.lua",
     files = {
-        ["timetable.lua"] = "timetable.lua",
-        ["master.lua"] = "master.lua",
-        ["station.lua"] = "station.lua",
-        ["monitor.lua"] = "monitor.lua",
-        ["network.lua"] = "network.lua"
+        ["main.lua"] = "main.lua",
     }
 }
