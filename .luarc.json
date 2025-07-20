@@ -6,6 +6,7 @@
         "textutils"
     ],
     "diagnostics.disable": [
-        "lowercase-global"
+        "lowercase-global",
+        "trailing-space"
     ]
 }
