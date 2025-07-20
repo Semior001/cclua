@@ -125,11 +125,24 @@ function monitor.displayTimetable(monitors, timetable, branch, scale)
                     displayName = string.sub(displayName, 1, stationColWidth - 3) .. "..."
                 end
 
-                -- Format the row
-                local formattedTime = " " .. timeStr .. string.rep(" ", timeColWidth - #timeStr - 1)
+                -- Format the row with prediction method indicator
+                local methodIndicator = ""
+                if data.predictionMethod == "route-pattern" then
+                    methodIndicator = "*"  -- Asterisk indicates route-based prediction
+                elseif data.predictionMethod == "interval" then
+                    methodIndicator = "~"  -- Tilde indicates interval-based prediction
+                end
+                
+                local formattedTime = methodIndicator .. timeStr .. string.rep(" ", timeColWidth - #timeStr - 1)
                 mon.write(formattedTime .. "| " .. displayName)
 
                 row = row + 1
+            end
+            
+            -- Add legend if there's space
+            if row < height - 1 then
+                mon.setCursorPos(1, height - 1)
+                mon.write("* Route-based  ~ Interval-based")
             end
         end
     end

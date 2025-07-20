@@ -3,8 +3,8 @@
 
 return {
     name = "timetable",
-    version = "2.0.0",
-    description = "Networked train timetable system for Create mod with multiple roles",
+    version = "2.1.0",
+    description = "Networked train timetable system for Create mod with route pattern detection",
     author = "cclua",
     main = "timetable.lua",
     files = {
