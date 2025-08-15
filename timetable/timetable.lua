@@ -170,19 +170,152 @@ function master.predictNextArrivals()
     local predictions = {}
     local current_time = os.epoch("utc") / 1000
     
+    -- Find the most recent arrival to determine train position
+    local most_recent_station = nil
+    local most_recent_time = 0
+    
+    for station, stats in pairs(master.timetable_data.statistics) do
+        if stats.last_arrival > most_recent_time then
+            most_recent_time = stats.last_arrival
+            most_recent_station = station
+        end
+    end
+    
+    if not most_recent_station then
+        -- No data yet, use old algorithm as fallback
+        for i, station in ipairs(master.config.stations) do
+            local stats = master.timetable_data.statistics[station]
+            if stats and stats.average_interval > 0 then
+                local next_arrival = stats.last_arrival + stats.average_interval
+                while next_arrival < current_time do
+                    next_arrival = next_arrival + stats.average_interval
+                end
+                predictions[station] = {
+                    next_arrival = next_arrival,
+                    confidence = math.min(stats.total_arrivals / 10, 1.0)
+                }
+            end
+        end
+        return predictions
+    end
+    
+    -- Calculate average travel time between adjacent stations
+    local travel_times = {}
+    local total_travel_time = 0
+    local valid_intervals = 0
+    
+    for station, stats in pairs(master.timetable_data.statistics) do
+        if stats.average_interval > 0 then
+            travel_times[station] = stats.average_interval
+            total_travel_time = total_travel_time + stats.average_interval
+            valid_intervals = valid_intervals + 1
+        end
+    end
+    
+    local avg_travel_time = valid_intervals > 0 and total_travel_time / valid_intervals or 60
+    
+    -- Find current station index
+    local current_station_idx = nil
+    for i, station in ipairs(master.config.stations) do
+        if station == most_recent_station then
+            current_station_idx = i
+            break
+        end
+    end
+    
+    if not current_station_idx then
+        return predictions -- Station not found in config
+    end
+    
+    -- Determine direction based on recent arrival pattern
+    local is_forward = true -- Default to forward direction
+    if #master.config.stations > 1 then
+        -- Look at the two most recent arrivals to determine direction
+        local second_most_recent_station = nil
+        local second_most_recent_time = 0
+        
+        for station, stats in pairs(master.timetable_data.statistics) do
+            if station ~= most_recent_station and stats.last_arrival > second_most_recent_time then
+                second_most_recent_time = stats.last_arrival
+                second_most_recent_station = station
+            end
+        end
+        
+        if second_most_recent_station then
+            local second_idx = nil
+            for i, station in ipairs(master.config.stations) do
+                if station == second_most_recent_station then
+                    second_idx = i
+                    break
+                end
+            end
+            
+            if second_idx then
+                -- If current index > previous index, moving forward
+                -- If current index < previous index, moving backward
+                -- Handle edge cases for turnaround points
+                if current_station_idx == 1 then
+                    is_forward = true -- At start, must be moving forward
+                elseif current_station_idx == #master.config.stations then
+                    is_forward = false -- At end, must be moving backward
+                else
+                    is_forward = current_station_idx > second_idx
+                end
+            end
+        end
+    end
+    
+    -- Calculate predictions for each station based on linear route
     for i, station in ipairs(master.config.stations) do
         local stats = master.timetable_data.statistics[station]
-        if stats and stats.average_interval > 0 then
-            local time_since_last = current_time - stats.last_arrival
-            local next_arrival = stats.last_arrival + stats.average_interval
+        if stats then
+            local steps_away = 0
             
-            while next_arrival < current_time do
-                next_arrival = next_arrival + stats.average_interval
+            if station == most_recent_station then
+                -- Train just left this station, calculate full round trip
+                if is_forward then
+                    if current_station_idx == #master.config.stations then
+                        -- At the end, return trip
+                        steps_away = 2 * (#master.config.stations - current_station_idx)
+                    else
+                        -- Forward trip to end, then back to this station
+                        steps_away = 2 * (#master.config.stations - current_station_idx) + 2 * (current_station_idx - 1)
+                    end
+                else
+                    if current_station_idx == 1 then
+                        -- At the start, return trip
+                        steps_away = 2 * (current_station_idx - 1) + 2 * (#master.config.stations - 1)
+                    else
+                        -- Backward trip to start, then forward to this station
+                        steps_away = 2 * (current_station_idx - 1) + 2 * (i - 1)
+                    end
+                end
+            else
+                if is_forward then
+                    if i > current_station_idx then
+                        -- Station ahead on forward journey
+                        steps_away = i - current_station_idx
+                    else
+                        -- Station behind, need to go to end and return
+                        steps_away = (#master.config.stations - current_station_idx) + (#master.config.stations - i)
+                    end
+                else
+                    if i < current_station_idx then
+                        -- Station ahead on backward journey
+                        steps_away = current_station_idx - i
+                    else
+                        -- Station behind, need to go to start and return
+                        steps_away = (current_station_idx - 1) + (i - 1)
+                    end
+                end
             end
+            
+            local next_arrival = most_recent_time + (steps_away * avg_travel_time)
+            local confidence = math.min(stats.total_arrivals / 10, 1.0) * 0.8 -- Slightly lower confidence for complex calculation
             
             predictions[station] = {
                 next_arrival = next_arrival,
-                confidence = math.min(stats.total_arrivals / 10, 1.0)
+                confidence = confidence
             }
         end
     end
@@ -325,7 +458,7 @@ function master.run(options)
         master.printStatus()
     end
     
-    rednet.close()
+    rednet.close(modem_side)
     print("Master node stopped")
 end
 
@@ -514,7 +647,7 @@ function monitor_node.run(options)
         end
     end
     
-    rednet.close()
+    rednet.close(modem_side)
     monitor.clear()
     monitor.setCursorPos(1, 1)
     print("Monitor node stopped")
@@ -634,7 +767,7 @@ function station_node.run(options)
         print("Using modem on " .. modem_side .. " side")
         station_node.initializeSignals()
         station_node.testSignal(station_name, branch_name)
-        rednet.close()
+        rednet.close(modem_side)
         return
     end
     
@@ -667,7 +800,7 @@ function station_node.run(options)
         sleep(0.05)
     end
     
-    rednet.close()
+    rednet.close(modem_side)
     print("Station node stopped")
 end
 
