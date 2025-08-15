@@ -349,7 +349,14 @@ function master.handleStationReport(message, sender_id, branch_name)
             master.timetable_data.arrivals[station] = {}
         end
         
-        table.insert(master.timetable_data.arrivals[station], timestamp)
+        local arrivals = master.timetable_data.arrivals[station]
+        
+        -- Always add new arrival, replacing oldest if at capacity
+        if #arrivals >= 30 then
+            -- Remove oldest arrival (first element)
+            table.remove(arrivals, 1)
+        end
+        table.insert(arrivals, timestamp)
         
         print(string.format("Train arrival at %s (from computer %d)", station, sender_id))
         
