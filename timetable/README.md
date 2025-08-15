@@ -189,9 +189,10 @@ Connect redstone to any side of the station computer:
 
 ### Common Issues
 1. **No monitor found**: Ensure monitor is properly connected as peripheral
-2. **No redstone signal**: Check wiring and test with `timetable station <branch> <name> test`
-3. **No network communication**: Verify rednet is working and computers are in range
-4. **Data not persisting**: Check file system permissions and disk space
+2. **No wireless modem found**: Attach a wireless modem to any side of the computer
+3. **No redstone signal**: Check wiring and test with `timetable station <branch> <name> test`
+4. **No network communication**: Verify rednet is working and computers are in range
+5. **Data not persisting**: Check file system permissions and disk space
 
 ### Testing Commands
 ```bash
@@ -209,7 +210,7 @@ timetable help
 ```
 
 ## System Requirements
-- ComputerCraft computers with wireless modems
+- ComputerCraft computers with wireless modems (automatically detected on any side)
 - Monitor peripherals for display nodes
 - Redstone connectivity for station detection
 - File system access for data persistence

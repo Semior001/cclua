@@ -7,6 +7,20 @@ local PROTOCOL = "timetable"
 local DATA_FILE = "timetable_data.lua"
 local CONFIG_FILE = "master_config.lua"
 
+local function findModem()
+    local sides = {"top", "bottom", "left", "right", "front", "back"}
+    
+    for _, side in ipairs(sides) do
+        if peripheral.getType(side) == "modem" then
+            if peripheral.call(side, "isWireless") then
+                return side
+            end
+        end
+    end
+    
+    return nil
+end
+
 local function parseArgs()
     local mode = nil
     local options = {}
@@ -268,7 +282,14 @@ function master.run(options)
         return
     end
     
-    rednet.open("back")
+    local modem_side = findModem()
+    if not modem_side then
+        print("Error: No wireless modem found!")
+        return
+    end
+    
+    rednet.open(modem_side)
+    print("Using modem on " .. modem_side .. " side")
     
     master.loadConfig(branch_name)
     master.loadData(branch_name)
@@ -459,7 +480,14 @@ function monitor_node.run(options)
         return
     end
     
-    rednet.open("back")
+    local modem_side = findModem()
+    if not modem_side then
+        print("Error: No wireless modem found!")
+        return
+    end
+    
+    rednet.open(modem_side)
+    print("Using modem on " .. modem_side .. " side")
     
     print("Monitor node starting for branch: " .. branch_name)
     print("Scale: " .. scale)
@@ -595,15 +623,23 @@ function station_node.run(options)
         return
     end
     
+    local modem_side = findModem()
+    if not modem_side then
+        print("Error: No wireless modem found!")
+        return
+    end
+    
     if options.test then
-        rednet.open("back")
+        rednet.open(modem_side)
+        print("Using modem on " .. modem_side .. " side")
         station_node.initializeSignals()
         station_node.testSignal(station_name, branch_name)
         rednet.close()
         return
     end
     
-    rednet.open("back")
+    rednet.open(modem_side)
+    print("Using modem on " .. modem_side .. " side")
     station_node.initializeSignals()
     
     print("Station node starting for: " .. branch_name .. "/" .. station_name)
