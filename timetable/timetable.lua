@@ -371,8 +371,36 @@ function master.predictNextArrivals()
             local total_travel_time = 0
             
             if station == most_recent_station then
-                -- Round trip calculation - simplified for now
-                total_travel_time = 360  -- Keep original logic for round trips
+                -- Round trip calculation using actual travel times
+                if is_forward then
+                    -- Forward to end, then back to current station
+                    -- Forward leg
+                    for step = current_station_idx, #master.config.stations - 1 do
+                        local from = master.config.stations[step]
+                        local to = master.config.stations[step + 1]
+                        total_travel_time = total_travel_time + master.getAverageTravelTime(from, to)
+                    end
+                    -- Return leg
+                    for step = #master.config.stations - 1, current_station_idx, -1 do
+                        local from = master.config.stations[step + 1]
+                        local to = master.config.stations[step]
+                        total_travel_time = total_travel_time + master.getAverageTravelTime(from, to)
+                    end
+                else
+                    -- Backward to start, then forward to current station
+                    -- Backward leg
+                    for step = current_station_idx - 1, 1, -1 do
+                        local from = master.config.stations[step + 1]
+                        local to = master.config.stations[step]
+                        total_travel_time = total_travel_time + master.getAverageTravelTime(from, to)
+                    end
+                    -- Forward leg
+                    for step = 1, current_station_idx - 1 do
+                        local from = master.config.stations[step]
+                        local to = master.config.stations[step + 1]
+                        total_travel_time = total_travel_time + master.getAverageTravelTime(from, to)
+                    end
+                end
             else
                 -- Direct route calculation
                 if is_forward then
