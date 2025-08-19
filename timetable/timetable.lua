@@ -95,7 +95,8 @@ master.config = {
 
 master.timetable_data = {
     arrivals = {},
-    statistics = {}
+    statistics = {},
+    travel_times = {}  -- Track inter-station travel times
 }
 
 function master.loadConfig(branch_name)
@@ -164,6 +165,75 @@ function master.calculateStatistics()
     end
     
     master.timetable_data.statistics = stats
+    master.calculateTravelTimes()
+end
+
+function master.calculateTravelTimes()
+    -- Calculate inter-station travel times from arrival sequences
+    local travel_times = {}
+    
+    -- Create a timeline of all arrivals across all stations
+    local timeline = {}
+    for station, arrivals in pairs(master.timetable_data.arrivals) do
+        for _, timestamp in ipairs(arrivals) do
+            table.insert(timeline, {station = station, timestamp = timestamp})
+        end
+    end
+    
+    -- Sort by timestamp
+    table.sort(timeline, function(a, b) return a.timestamp < b.timestamp end)
+    
+    -- Calculate travel times between consecutive arrivals
+    for i = 1, #timeline - 1 do
+        local from_station = timeline[i].station
+        local to_station = timeline[i + 1].station
+        local travel_time = timeline[i + 1].timestamp - timeline[i].timestamp
+        
+        -- Only record reasonable travel times (5-60 seconds)
+        if travel_time >= 3 and travel_time <= 60 and from_station ~= to_station then
+            local route_key = from_station .. "->" .. to_station
+            
+            if not travel_times[route_key] then
+                travel_times[route_key] = {}
+            end
+            
+            -- Keep only last 10 measurements per route
+            local times = travel_times[route_key]
+            if #times >= 10 then
+                table.remove(times, 1)
+            end
+            table.insert(times, travel_time)
+        end
+    end
+    
+    master.timetable_data.travel_times = travel_times
+end
+
+function master.getAverageTravelTime(from_station, to_station)
+    local route_key = from_station .. "->" .. to_station
+    local times = master.timetable_data.travel_times[route_key]
+    
+    if times and #times > 0 then
+        local sum = 0
+        for _, time in ipairs(times) do
+            sum = sum + time
+        end
+        return sum / #times
+    end
+    
+    -- Fallback: try to estimate based on station sequence
+    local from_idx, to_idx
+    for i, station in ipairs(master.config.stations) do
+        if station == from_station then from_idx = i end
+        if station == to_station then to_idx = i end
+    end
+    
+    if from_idx and to_idx then
+        local distance = math.abs(to_idx - from_idx)
+        return distance * 5.5  -- Estimate ~5.5 seconds per station hop
+    end
+    
+    return 10  -- Default fallback
 end
 
 function master.predictNextArrivals()
@@ -199,20 +269,7 @@ function master.predictNextArrivals()
         return predictions
     end
     
-    -- Calculate average travel time between adjacent stations
-    local travel_times = {}
-    local total_travel_time = 0
-    local valid_intervals = 0
-    
-    for station, stats in pairs(master.timetable_data.statistics) do
-        if stats.average_interval > 0 then
-            travel_times[station] = stats.average_interval
-            total_travel_time = total_travel_time + stats.average_interval
-            valid_intervals = valid_intervals + 1
-        end
-    end
-    
-    local avg_travel_time = valid_intervals > 0 and total_travel_time / valid_intervals or 60
+    -- We now use actual measured inter-station travel times
     
     -- Find current station index
     local current_station_idx = nil
@@ -310,7 +367,68 @@ function master.predictNextArrivals()
                 end
             end
             
-            local next_arrival = most_recent_time + (steps_away * avg_travel_time)
+            -- Calculate actual travel time based on route
+            local total_travel_time = 0
+            
+            if station == most_recent_station then
+                -- Round trip calculation - simplified for now
+                total_travel_time = 360  -- Keep original logic for round trips
+            else
+                -- Direct route calculation
+                if is_forward then
+                    if i > current_station_idx then
+                        -- Forward journey: calculate cumulative time
+                        for step = current_station_idx, i - 1 do
+                            if step < #master.config.stations then
+                                local from = master.config.stations[step]
+                                local to = master.config.stations[step + 1]
+                                total_travel_time = total_travel_time + master.getAverageTravelTime(from, to)
+                            end
+                        end
+                    else
+                        -- Need to go to end and return
+                        -- Forward to end
+                        for step = current_station_idx, #master.config.stations - 1 do
+                            local from = master.config.stations[step]
+                            local to = master.config.stations[step + 1]
+                            total_travel_time = total_travel_time + master.getAverageTravelTime(from, to)
+                        end
+                        -- Return journey
+                        for step = #master.config.stations - 1, i, -1 do
+                            local from = master.config.stations[step + 1]
+                            local to = master.config.stations[step]
+                            total_travel_time = total_travel_time + master.getAverageTravelTime(from, to)
+                        end
+                    end
+                else
+                    if i < current_station_idx then
+                        -- Backward journey: calculate cumulative time
+                        for step = current_station_idx - 1, i, -1 do
+                            if step >= 1 then
+                                local from = master.config.stations[step + 1]
+                                local to = master.config.stations[step]
+                                total_travel_time = total_travel_time + master.getAverageTravelTime(from, to)
+                            end
+                        end
+                    else
+                        -- Need to go to start and return
+                        -- Backward to start
+                        for step = current_station_idx - 1, 1, -1 do
+                            local from = master.config.stations[step + 1]
+                            local to = master.config.stations[step]
+                            total_travel_time = total_travel_time + master.getAverageTravelTime(from, to)
+                        end
+                        -- Forward journey
+                        for step = 1, i - 1 do
+                            local from = master.config.stations[step]
+                            local to = master.config.stations[step + 1]
+                            total_travel_time = total_travel_time + master.getAverageTravelTime(from, to)
+                        end
+                    end
+                end
+            end
+            
+            local next_arrival = most_recent_time + total_travel_time
             local confidence = math.min(stats.total_arrivals / 10, 1.0) * 0.8 -- Slightly lower confidence for complex calculation
             
             predictions[station] = {
@@ -378,6 +496,19 @@ function master.printStatus()
     for station, stats in pairs(master.timetable_data.statistics) do
         print(string.format("  %s: %d arrivals, %.1fs avg interval", 
             station, stats.total_arrivals, stats.average_interval))
+    end
+    
+    print("")
+    print("Travel Times:")
+    for route, times in pairs(master.timetable_data.travel_times or {}) do
+        if #times > 0 then
+            local sum = 0
+            for _, time in ipairs(times) do
+                sum = sum + time
+            end
+            local avg = sum / #times
+            print(string.format("  %s: %.1fs avg (%d samples)", route, avg, #times))
+        end
     end
     
     print("")
