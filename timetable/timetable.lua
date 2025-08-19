@@ -356,7 +356,7 @@ local station = {
     name = "",
 }
 
-local function station.sendArrival()
+function station.sendArrival()
     local message = {
         type = "arrival",
         branch = station.branch,
@@ -366,7 +366,7 @@ local function station.sendArrival()
     print(string.format("%s: sent arrival from %s", os.date("%H:%M:%S", os.epoch("utc")), station.name))
 end
 
-local function station.hasRedstoneSignal()
+function station.hasRedstoneSignal()
     local sides = { "top", "bottom", "left", "right", "front", "back" }
     for _, side in ipairs(sides) do
         if redstone.getInput(side) then
