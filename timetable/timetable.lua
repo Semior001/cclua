@@ -1,15 +1,10 @@
--- Timetable System
--- Made with Claude Code
-
-local args = {...}
-
 local PROTOCOL = "timetable"
-local DATA_FILE = "timetable_data.lua"
-local CONFIG_FILE = "master_config.lua"
+local CONFIG_FILE = "config.lua"
+
 
 local function findModem()
-    local sides = {"top", "bottom", "left", "right", "front", "back"}
-    
+    local sides = { "top", "bottom", "left", "right", "front", "back" }
+
     for _, side in ipairs(sides) do
         if peripheral.getType(side) == "modem" then
             if peripheral.call(side, "isWireless") then
@@ -17,701 +12,435 @@ local function findModem()
             end
         end
     end
-    
+
     return nil
 end
 
-local function parseArgs()
-    local mode = nil
-    local options = {}
-    
-    for i, arg in ipairs(args) do
-        if arg:match("^--mode=") then
-            mode = arg:match("^--mode=(.+)")
-        elseif arg:match("^--branch=") then
-            options.branch = arg:match("^--branch=(.+)")
-        elseif arg == "help" or arg == "--help" then
-            mode = "help"
-        elseif arg == "reset" then
-            options.reset = true
-        elseif arg == "reconfig" then
-            options.reconfig = true
-        elseif arg == "test" then
-            options.test = true
-        elseif arg:match("^--scale=") then
-            options.scale = tonumber(arg:match("^--scale=(.+)")) or 1
-        elseif arg:match("^--station=") then
-            options.station = arg:match("^--station=(.+)")
-        elseif not mode and (arg == "master" or arg == "monitor" or arg == "station") then
-            mode = arg
-        elseif not options.branch and mode and not options.station then
-            options.branch = arg
-        elseif not options.station and mode == "station" and options.branch then
-            options.station = arg
-        elseif not options.scale and mode == "monitor" and options.branch then
-            options.scale = tonumber(arg) or 1
-        end
-    end
-    
-    return mode, options
-end
+-- ========= master =========
 
-local function showHelp()
-    print("Timetable System")
-    print("Usage: timetable <mode> <branch> [options]")
-    print("")
-    print("Modes:")
-    print("  master <branch>            - Run as master node for branch")
-    print("  monitor <branch> [scale]   - Run as monitor node for branch")
-    print("  station <branch> <name>    - Run as station node for branch")
-    print("")
-    print("Alternative syntax:")
-    print("  timetable --mode=master --branch=<branch> [options]")
-    print("  timetable --mode=monitor --branch=<branch> --scale=2")
-    print("  timetable --mode=station --branch=<branch> --station=<name>")
-    print("")
-    print("Master options:")
-    print("  reset                      - Reset all timetable data")
-    print("  reconfig                   - Reconfigure stations")
-    print("")
-    print("Station options:")
-    print("  test                       - Run in test mode")
-    print("")
-    print("Examples:")
-    print("  timetable master Main_Line")
-    print("  timetable monitor Main_Line 2")
-    print("  timetable station Main_Line Central_Station")
-    print("  timetable --mode=station --branch=North_Line --station=North_Station test")
-end
-
--- MASTER MODE FUNCTIONS
-local master = {}
-
-master.config = {
-    branch_name = "",
-    stations = {},
-    broadcast_interval = 5
+local master = {
+    branch = "",
+    lastStation = "", 
+    stations = {}, -- []station
+    arrivals = {}, -- map[from][to][]time 
+    broadcastInterval = 5, -- seconds
 }
 
-master.timetable_data = {
-    arrivals = {},
-    statistics = {}
-}
+local lastEvents = {} -- list of last log events, to print at the bottom of the screen
 
-function master.loadConfig(branch_name)
-    local branch_config_file = "master_config_" .. branch_name .. ".lua"
-    if fs.exists(branch_config_file) then
-        local file = fs.open(branch_config_file, "r")
-        local data = file.readAll()
-        file.close()
-        master.config = textutils.unserialize(data) or master.config
-    else
-        print("Creating new config for branch: " .. branch_name)
-        master.config.branch_name = branch_name
-        
-        print("Enter stations (comma-separated, in order):")
-        local stations_input = read()
-        master.config.stations = {}
-        for station in stations_input:gmatch("[^,]+") do
-            table.insert(master.config.stations, station:match("^%s*(.-)%s*$"))
-        end
-        
-        master.saveConfig(branch_name)
+function lastEvents.add(event)
+    table.insert(lastEvents, event)
+    if #lastEvents > 3 then
+        table.remove(lastEvents, 1) -- keep only the last 3 events
     end
 end
 
-function master.saveConfig(branch_name)
-    local branch_config_file = "master_config_" .. branch_name .. ".lua"
-    local file = fs.open(branch_config_file, "w")
-    file.write(textutils.serialize(master.config))
+function master.save()
+    local file = fs.open(CONFIG_FILE, "w")
+    file.write(textutils.serialize(master))
     file.close()
 end
 
-function master.loadData(branch_name)
-    local branch_data_file = "timetable_data_" .. branch_name .. ".lua"
-    if fs.exists(branch_data_file) then
-        local file = fs.open(branch_data_file, "r")
-        local data = file.readAll()
-        file.close()
-        master.timetable_data = textutils.unserialize(data) or master.timetable_data
+function master.load()
+    if not fs.exists(CONFIG_FILE) then    
+        error("Configuration file does not exist")
     end
-end
-
-function master.saveData(branch_name)
-    local branch_data_file = "timetable_data_" .. branch_name .. ".lua"
-    local file = fs.open(branch_data_file, "w")
-    file.write(textutils.serialize(master.timetable_data))
+    local file = fs.open(CONFIG_FILE, "r")
+    master = textutils.unserialize(file.readAll())
     file.close()
-end
 
-function master.calculateStatistics()
-    local stats = {}
-    
-    for station_id, arrivals in pairs(master.timetable_data.arrivals) do
-        stats[station_id] = {
-            total_arrivals = #arrivals,
-            average_interval = 0,
-            last_arrival = arrivals[#arrivals] or 0
-        }
-        
-        if #arrivals > 1 then
-            local total_time = 0
-            for i = 2, #arrivals do
-                total_time = total_time + (arrivals[i] - arrivals[i-1])
+    if not master.branch or master.branch == "" then
+        error("Branch is not set in the configuration file")
+    end
+
+    if not master.stations or #master.stations == 0 then
+        error("No stations defined in the configuration file")
+    end
+
+    if not master.arrivals then
+        master.arrivals = {}
+    end
+
+    if not master.lastStation then
+        master.lastStation = ""
+    end
+
+    if not master.broadcastInterval or master.broadcastInterval <= 0 then
+        master.broadcastInterval = 5 -- default to 5 seconds
+    end
+
+    for _, station in ipairs(master.stations) do
+        if not master.arrivals[station] then
+            master.arrivals[station] = {}
+        end
+        for _, otherStation in ipairs(master.stations) do
+            if station ~= otherStation and not master.arrivals[station][otherStation] then
+                master.arrivals[station][otherStation] = {}
             end
-            stats[station_id].average_interval = total_time / (#arrivals - 1)
         end
     end
-    
-    master.timetable_data.statistics = stats
 end
 
-function master.predictNextArrivals()
-    local predictions = {}
-    local current_time = os.epoch("utc") / 1000
-    
-    -- Simple statistical approach: next_arrival = last_arrival + average_interval
-    for station, stats in pairs(master.timetable_data.statistics) do
-        if stats and stats.average_interval > 0 and stats.last_arrival > 0 then
-            -- Calculate next arrival based on average interval
-            local next_arrival = stats.last_arrival + stats.average_interval
-            
-            -- If prediction is in the past, add intervals until it's in the future
-            while next_arrival < current_time do
-                next_arrival = next_arrival + stats.average_interval
-            end
-            
-            -- Confidence based on number of data points
-            local confidence = math.min(stats.total_arrivals / 10, 1.0)
-            
-            predictions[station] = {
-                next_arrival = next_arrival,
-                confidence = confidence
-            }
+function master.recordArrival(station)
+    if master.lastStation == "" then
+        master.lastStation = station
+        return
+    end
+
+    table.insert(master.arrivals[master.lastStation][station], os.epoch("utc"))
+    if #master.arrivals[master.lastStation][station] > 10 then
+        table.remove(master.arrivals[master.lastStation][station], 1) -- keep only the last 10 arrivals
+    end
+    master.lastStation = station
+    lastEvents.add(string.format("%s: recorded arrival at %s from %s", 
+        os.date("%H:%M:%S", os.epoch("utc")), station, master.lastStation))
+end
+
+function master.averageTravelTime(from, to)
+    local times = master.arrivals[from][to]
+    if #times == 0 then
+        return -1
+    end
+
+    local total = 0
+    for _, time in ipairs(times) do
+        total = total + time
+    end
+
+    return total / #times
+end
+
+function master.timetable(now)
+    local timetable = {} -- [{ station, estimatedTime }, ...]
+
+    for _, station in ipairs(master.stations) do
+        local averageTime = master.averageTravelTime(master.lastStation, station)
+        if averageTime ~= -1 then
+            table.insert(timetable, { station = station, estimatedTime = now + averageTime })
         end
     end
-    
-    return predictions
+    table.sort(timetable, function(a, b)
+        return a.estimatedTime < b.estimatedTime
+    end)
+    return timetable
 end
 
 function master.broadcastTimetable()
-    master.calculateStatistics()
-    local predictions = master.predictNextArrivals()
-    
+    local now = os.epoch("utc")
+    local timetable = master.timetable(now)
     local message = {
         type = "timetable_update",
-        branch = master.config.branch_name,
-        stations = master.config.stations,
-        statistics = master.timetable_data.statistics,
-        predictions = predictions,
-        timestamp = os.epoch("utc") / 1000
+        branch = master.branch,
+        stations = master.stations,
+        timetable = timetable,
+        now = now,
     }
-    
     rednet.broadcast(message, PROTOCOL)
-    print("Broadcasted timetable update")
 end
 
-function master.handleStationReport(message, sender_id, branch_name)
-    if message.type == "train_arrival" and message.branch == branch_name then
-        local station = message.station
-        local timestamp = message.timestamp
-        
-        if not master.timetable_data.arrivals[station] then
-            master.timetable_data.arrivals[station] = {}
+function master.statusText()
+    local text = ""
+    text = text .. strings.format("Branch: %s, Broadcast interval: %ds\n", master.branch, master.broadcastInterval)
+    text = text .. strings.format("Last Station: %s\n", master.lastStation)
+    text = text .. strings.format("Stations: %s\n", table.concat(master.stations, ", "))
+    text = text .. "Arrivals:\n"
+    for from, destinations in pairs(master.arrivals) do
+        for to, times in pairs(destinations) do
+            local avg = master.averageTravelTime(from, to)
+            text = text .. strings.format("  %s -> %s: %d arrivals, avg: %d\n", from, to, #times, avg)
         end
-        
-        local arrivals = master.timetable_data.arrivals[station]
-        
-        -- Always add new arrival, replacing oldest if at capacity
-        if #arrivals >= 30 then
-            -- Remove oldest arrival (first element)
-            table.remove(arrivals, 1)
-        end
-        table.insert(arrivals, timestamp)
-        
-        print(string.format("Train arrival at %s (from computer %d)", station, sender_id))
-        
-        master.saveData(branch_name)
-        master.broadcastTimetable()
     end
+    text = text .. "Press 'q' to quit, 'r' to reset data\n"
+    return text
 end
 
 function master.printStatus()
     term.clear()
     term.setCursorPos(1, 1)
+    print(master.statusText())
     
-    print("=== TIMETABLE MASTER ===")
-    print("Branch: " .. master.config.branch_name)
-    print("Stations: " .. table.concat(master.config.stations, ", "))
-    print("")
-    
-    print("Statistics:")
-    for station, stats in pairs(master.timetable_data.statistics) do
-        print(string.format("  %s: %d arrivals, %.1fs avg interval", 
-            station, stats.total_arrivals, stats.average_interval))
-    end
-    
-    print("")
-    print("Statistical Predictions (based on average intervals):")
-    
-    print("")
-    print("Next predicted arrivals:")
-    local predictions = master.predictNextArrivals()
-    for station, pred in pairs(predictions) do
-        local eta = pred.next_arrival - (os.epoch("utc") / 1000)
-        if eta > 0 then
-            print(string.format("  %s: %.1fs (%.0f%% confidence)", 
-                station, eta, pred.confidence * 100))
+    -- if there are last events, print them
+    if #lastEvents > 0 then
+        -- set cursor at the third to the bottom row, clear it
+        for i = 1, 3 do
+            term.setCursorPos(1, term.getSize() - i)
+            term.clearLine()
+        end
+        term.setCursorPos(1, term.getSize() - 2)
+        local start = math.max(1, #lastEvents - 2)
+        for i = start, #lastEvents do
+            term.write(lastEvents[i] .. "\n")
         end
     end
-    
-    print("")
-    print("Press 'q' to quit, 'r' to reset data, 'c' to reconfigure")
+
+    local display = peripheral.find("monitor")
+    if not display then
+        return
+    end
+
+    display.clear()
+    display.setCursorPos(1, 1)
+    display.write(master.statusText())
 end
 
-function master.run(options)
-    local branch_name = options.branch
-    if not branch_name then
-        print("Error: Branch name required for master mode")
-        print("Usage: timetable master <branch_name>")
-        return
+function master.run()
+    master.load()
+    local modemSide = findModem()
+    if not modemSide then
+        error("No wireless modem found")
     end
-    
-    local branch_data_file = "timetable_data_" .. branch_name .. ".lua"
-    local branch_config_file = "master_config_" .. branch_name .. ".lua"
-    
-    if options.reset then
-        if fs.exists(branch_data_file) then
-            fs.delete(branch_data_file)
-            print("Timetable data reset for branch: " .. branch_name)
-        end
-        return
-    end
-    
-    if options.reconfig then
-        if fs.exists(branch_config_file) then
-            fs.delete(branch_config_file)
-            print("Configuration reset for branch: " .. branch_name)
-        end
-        return
-    end
-    
-    local modem_side = findModem()
-    if not modem_side then
-        print("Error: No wireless modem found!")
-        return
-    end
-    
-    rednet.open(modem_side)
-    print("Using modem on " .. modem_side .. " side")
-    
-    master.loadConfig(branch_name)
-    master.loadData(branch_name)
-    
-    print("Master node starting for branch: " .. branch_name)
-    
-    local broadcast_timer = os.startTimer(master.config.broadcast_interval)
-    
+
+    rednet.open(modemSide)
+    rednet.host(PROTOCOL, master.branch)
+
+    local broadcast_timer = os.startTimer(master.broadcastInterval)
     while true do
-        local event, param1, param2, param3 = os.pullEvent()
-        
+        local event, senderID, message = os.pullEvent()
         if event == "rednet_message" then
-            master.handleStationReport(param2, param1, branch_name)
-            
+            if     not message 
+                or not message.type   or message.type   ~= "arrival"
+                or not message.branch or message.branch ~= master.branch
+                or not message.station then
+                goto continue
+            end
+            master.recordArrival(message.station)
         elseif event == "timer" and param1 == broadcast_timer then
             master.broadcastTimetable()
             broadcast_timer = os.startTimer(master.config.broadcast_interval)
-            
         elseif event == "char" then
             if param1 == "q" then
                 break
             elseif param1 == "r" then
-                master.timetable_data = {arrivals = {}, statistics = {}}
-                master.saveData(branch_name)
-                print("Data reset")
-            elseif param1 == "c" then
-                fs.delete(branch_config_file)
-                master.loadConfig(branch_name)
-                print("Reconfigured")
+                master.arrivals = {}
+                master.lastStation = ""
+                master.save()
             end
         end
-        
+
         master.printStatus()
+        ::continue::
     end
-    
-    rednet.close(modem_side)
-    print("Master node stopped")
+
+    rednet.close(modemSide)
+    master.save()
+    print("master has stopped")
 end
 
--- MONITOR MODE FUNCTIONS
-local monitor_node = {}
+--- ======== monitor =========
 
-monitor_node.timetable = {
+local monitor = {
     branch = "",
-    stations = {},
-    statistics = {},
-    predictions = {},
-    last_update = 0
+    scale = 1
 }
 
-function monitor_node.formatTime(seconds)
-    if seconds < 60 then
-        return string.format("%.0fs", seconds)
-    elseif seconds < 3600 then
-        return string.format("%.0fm %.0fs", math.floor(seconds / 60), seconds % 60)
-    else
-        return string.format("%.0fh %.0fm", math.floor(seconds / 3600), (seconds % 3600) / 60)
-    end
-end
+function monitor.drawTimetable(timetable)
+    -- {
+    --   type: "timetable_update",
+    --   branch: "branch_name",
+    --   stations: ["station1", "station2", ...],
+    --   timetable: [{ station: "station1", estimatedTime: 1234567890 }, ...],
+    --   now: current_time_in_utc
+    -- }
 
-function monitor_node.formatTimestamp(timestamp)
-    local date = os.date("*t", timestamp)
-    return string.format("%02d:%02d:%02d", date.hour, date.min, date.sec)
-end
-
-function monitor_node.drawTimetable(monitor, scale)
-    monitor.setTextScale(scale)
-    monitor.clear()
-    monitor.setTextColor(colors.white)
-    monitor.setBackgroundColor(colors.black)
-    
-    local w, h = monitor.getSize()
-    
-    -- Center the branch header
-    local header = "=== Branch: " .. monitor_node.timetable.branch .. " ==="
-    local header_x = math.max(1, math.floor((w - #header) / 2) + 1)
-    monitor.setCursorPos(header_x, 1)
-    monitor.write(header)
-    
-    if monitor_node.timetable.last_update == 0 then
-        monitor.setCursorPos(1, 3)
-        monitor.setTextColor(colors.red)
-        monitor.write("Waiting for data...")
+    local display = peripheral.find("monitor")
+    if not display then
         return
     end
+
+    display.clear()
+    display.setCursorPos(1, 1)
+    display.setTextScale(monitor.scale)
+
+    monitor.printCenter(display, "=== Branch: %s ===", monitor.branch)
+    monitor.print(display, "Time: %s", os.date("%H:%M:%S", timetable.now))
     
-    local current_time = os.epoch("utc") / 1000
-    
-    -- Create sorted list of stations by closest arrival time
-    local station_arrivals = {}
-    for _, station in ipairs(monitor_node.timetable.stations) do
-        local prediction = monitor_node.timetable.predictions[station]
-        local eta = nil
-        local display_text = station .. ": No data"
-        
-        if prediction then
-            eta = prediction.next_arrival - current_time
-            if eta > 0 then
-                display_text = station .. ": " .. monitor_node.formatTime(eta)
-            else
-                display_text = station .. ": OVERDUE"
-                eta = -math.abs(eta) -- Negative for overdue, for sorting
-            end
+    for _, entry in ipairs(timetable.timetable) do
+        local station = entry.station
+        local estimatedTime = os.date("%H:%M:%S", entry.estimatedTime)
+
+        local text = station
+        if estimatedTime < 0 then
+            text = text .. " $RED$OVERDUE$WHITE$"
+        elseif estimatedTime < 5 then
+            text = text .. " $YELLOW$SOON$WHITE$"
         else
-            eta = math.huge -- No data goes to end
+            text = text .. " " .. estimatedTime
         end
-        
-        table.insert(station_arrivals, {
-            station = station,
-            eta = eta,
-            display_text = display_text,
-            prediction = prediction
-        })
+        monitor.print(display, text)
     end
-    
-    -- Sort by closest arrival time (overdue items go first with most overdue first)
-    table.sort(station_arrivals, function(a, b)
-        if a.eta == math.huge and b.eta == math.huge then
-            return a.station < b.station -- Alphabetical for no-data items
-        elseif a.eta == math.huge then
-            return false -- No data goes to end
-        elseif b.eta == math.huge then
-            return true -- No data goes to end
-        elseif a.eta < 0 and b.eta < 0 then
-            return a.eta > b.eta -- Most overdue first (larger negative number)
-        elseif a.eta < 0 then
-            return true -- Overdue items first
-        elseif b.eta < 0 then
-            return false -- Overdue items first
-        else
-            return a.eta < b.eta -- Closest positive time first
-        end
-    end)
-    
-    -- Display sorted stations starting from line 3
-    local line = 3
-    for _, entry in ipairs(station_arrivals) do
-        if line > h - 1 then break end
-        
-        monitor.setCursorPos(1, line)
-        
-        if entry.eta == math.huge then
-            monitor.setTextColor(colors.gray)
-        elseif entry.eta < 0 then
-            monitor.setTextColor(colors.red)
-        else
-            monitor.setTextColor(colors.green)
-        end
-        
-        monitor.write(entry.display_text)
-        line = line + 1
-    end
-    
-    -- Display "updated: X ago" in bottom-right corner
-    local age = current_time - monitor_node.timetable.last_update
-    local update_text = "updated: " .. monitor_node.formatTime(age) .. " ago"
-    local update_x = math.max(1, w - #update_text + 1)
-    monitor.setCursorPos(update_x, h)
-    monitor.setTextColor(colors.gray)
-    monitor.write(update_text)
 end
 
-function monitor_node.handleTimetableUpdate(message, branch_name)
-    if message.type == "timetable_update" and message.branch == branch_name then
-        monitor_node.timetable.branch = message.branch or ""
-        monitor_node.timetable.stations = message.stations or {}
-        monitor_node.timetable.statistics = message.statistics or {}
-        monitor_node.timetable.predictions = message.predictions or {}
-        monitor_node.timetable.last_update = message.timestamp or 0
-        
-        print("Timetable updated from master")
-        return true
+local colors = {
+    ["RED"] = colors.red,
+    ["YELLOW"] = colors.yellow,
+    ["WHITE"] = colors.white,
+    ["GREEN"] = colors.green,
+    ["BLUE"] = colors.blue,
+    ["MAGENTA"] = colors.magenta,
+    ["CYAN"] = colors.cyan,
+    ["GRAY"] = colors.gray
+}
+
+function monitor.print(display, format, ...)
+    local text = string.format(format, ...)
+    local x, y = display.getCursorPos()
+    display.setCursorPos(x, y + 1)
+    monitor.write(display, text)
+end
+
+function monitor.write(display, text)
+    -- iterate over each character in the text, if there is a substring with $color$ then set the color
+    for i = 1, #text do
+        local c = text:sub(i,i)
+        if c == "$" then
+            local color = text:match("^(%w+)$", i + 1)
+            if color then
+                display.setTextColor(colors[color:upper()] or colors.white)
+                i = i + #color + 1
+            else
+                display.write(c)
+                i = i + 1
+            end
+        else
+            display.write(c)
+        end
+    end
+end
+
+function monitor.printCenter(display, format, ...)
+    local text = string.format(format, ...)
+    local width, _ = display.getSize()
+    local textWidth = string.len(text)
+    local x = math.floor((width - textWidth) / 2) + 1
+    display.setCursorPos(x, 1)
+    monitor.write(display, text)
+end
+
+function monitor.run()
+    local modemSide = findModem()
+    if not modemSide then
+        error("No wireless modem found")
+    end
+
+    rednet.open(modemSide)
+    print("Using modem on " .. modemSide .. " side")
+    print("Monitor node starting for branch: " .. monitor.branch)
+    print("Scale: " .. monitor.scale)
+    print("Press 'q' to quit")
+
+    monitor.drawTimetable()
+    while true do
+        local event, senderID, message = os.pullEvent()
+        if event == "rednet_message" then
+            if not message
+                or not message.type   or message.type   ~= "timetable_update"
+                or not message.branch or message.branch ~= monitor.branch then
+                goto continue
+            end
+            monitor.drawTimetable(message)
+        elseif event == "char" then
+            if param1 == "q" then
+                break
+            end
+        end
+        ::continue::
+    end
+
+    rednet.close(modemSide)
+    print("monitor has stopped")
+end
+
+-- ========= station =========
+local station = {
+    branch = "",
+    name = "",
+}
+
+local function station.sendArrival()
+    local message = {
+        type = "arrival",
+        branch = station.branch,
+        station = station.name,
+    }
+    rednet.send(rednet.lookup(PROTOCOL, station.branch), message)
+    print(string.format("%s: sent arrival from %s", os.date("%H:%M:%S", os.epoch("utc")), station.name))
+end
+
+local function station.hasRedstoneSignal()
+    local sides = { "top", "bottom", "left", "right", "front", "back" }
+    for _, side in ipairs(sides) do
+        if redstone.getInput(side) then
+            return true
+        end
     end
     return false
 end
 
-function monitor_node.run(options)
-    local branch_name = options.branch
-    if not branch_name then
-        print("Error: Branch name required for monitor mode")
-        print("Usage: timetable monitor <branch_name> [scale]")
-        return
+function station.run()
+    local modemSide = findModem()
+    if not modemSide then
+        error("No wireless modem found")
     end
     
-    local scale = options.scale or 1
-    
-    local monitor = peripheral.find("monitor")
-    if not monitor then
-        print("Error: No monitor found!")
-        return
-    end
-    
-    local modem_side = findModem()
-    if not modem_side then
-        print("Error: No wireless modem found!")
-        return
-    end
-    
-    rednet.open(modem_side)
-    print("Using modem on " .. modem_side .. " side")
-    
-    print("Monitor node starting for branch: " .. branch_name)
-    print("Scale: " .. scale)
-    print("Waiting for timetable data...")
-    
-    monitor_node.drawTimetable(monitor, scale)
-    
-    local update_timer = os.startTimer(1)
+    rednet.open(modemSide)
+    print("Using modem on " .. modemSide .. " side"
+    print("Station node starting for branch: " .. station.branch)
+    print("Station name: " .. station.name)
+    print("Press 'a' to send arrival, 'q' to quit")
     
     while true do
-        local event, param1, param2 = os.pullEvent()
-        
-        if event == "rednet_message" then
-            if monitor_node.handleTimetableUpdate(param2, branch_name) then
-                monitor_node.drawTimetable(monitor, scale)
+        local event = os.pullEvent()
+        if event == "char" then
+            if param1 == "a" then
+                station.sendArrival()
+            elseif param1 == "q" then
+                break
             end
-            
-        elseif event == "timer" and param1 == update_timer then
-            monitor_node.drawTimetable(monitor, scale)
-            update_timer = os.startTimer(1)
-            
-        elseif event == "terminate" then
-            break
+        elseif event == "redstone" and station.hasRedstoneSignal() then
+            station.sendArrival()
         end
     end
-    
-    rednet.close(modem_side)
-    monitor.clear()
-    monitor.setCursorPos(1, 1)
-    print("Monitor node stopped")
 end
 
--- STATION MODE FUNCTIONS
-local station_node = {}
-
-station_node.sides = {"top", "bottom", "left", "right", "front", "back"}
-station_node.previous_signals = {}
-
-function station_node.initializeSignals()
-    for _, side in ipairs(station_node.sides) do
-        station_node.previous_signals[side] = redstone.getInput(side)
+local function main(args)
+    if #args < 2 then
+        print("Usage: timetable <mode> <branch>")
+        return
     end
-end
 
-function station_node.checkRedstoneSignals(station_name, branch_name)
-    for _, side in ipairs(station_node.sides) do
-        local current_signal = redstone.getInput(side)
-        local previous_signal = station_node.previous_signals[side]
-        
-        if current_signal and not previous_signal then
-            local timestamp = os.epoch("utc") / 1000
-            
-            local message = {
-                type = "train_arrival",
-                branch = branch_name,
-                station = station_name,
-                timestamp = timestamp,
-                side = side
-            }
-            
-            rednet.broadcast(message, PROTOCOL)
-            
-            print(string.format("Train detected at %s/%s on %s side at %s", 
-                branch_name, station_name, side, os.date("%H:%M:%S", timestamp)))
-            
-            sleep(0.5)
+    local mode = args[1]
+    local branch = args[2]
+
+    if mode ~= "master" and mode ~= "monitor" and mode ~= "station" then
+        print("Invalid mode. Use 'master', 'monitor', or 'station'.")
+        return
+    end
+
+    if not branch or branch == "" then
+        print("Branch name is required.")
+        return
+    end
+
+    if mode == "master" then
+        master.branch = branch
+        master.run()
+    elseif mode == "monitor" then
+        monitor.branch = branch
+        if #args > 2 then
+            monitor.scale = tonumber(args[3])
         end
-        
-        station_node.previous_signals[side] = current_signal
-    end
-end
-
-function station_node.printStatus(station_name, branch_name)
-    term.clear()
-    term.setCursorPos(1, 1)
-    
-    print("=== STATION NODE ===")
-    print("Branch: " .. branch_name)
-    print("Station: " .. station_name)
-    print("")
-    print("Monitoring redstone signals on all sides")
-    print("Current signal status:")
-    
-    for _, side in ipairs(station_node.sides) do
-        local signal = redstone.getInput(side)
-        local status = signal and "ON" or "OFF"
-        local color = signal and colors.green or colors.red
-        
-        term.setTextColor(color)
-        print("  " .. side .. ": " .. status)
-        term.setTextColor(colors.white)
-    end
-    
-    print("")
-    print("Waiting for train arrivals...")
-    print("Press 'q' to quit")
-end
-
-function station_node.testSignal(station_name, branch_name)
-    print("Testing signal detection...")
-    print("Please activate redstone on any side to test...")
-    
-    local test_start = os.epoch("utc") / 1000
-    local timeout = 30
-    
-    while (os.epoch("utc") / 1000) - test_start < timeout do
-        station_node.checkRedstoneSignals(station_name, branch_name)
-        
-        local event, char = os.pullEvent("char")
-        if event == "char" and char == "q" then
+        monitor.run()
+    elseif mode == "station" then
+        station.branch = branch
+        if #args < 3 then
+            print("Usage: timetable station <branch> <name>")
             return
         end
-        
-        sleep(0.1)
-    end
-    
-    print("Test timeout reached")
-end
-
-function station_node.run(options)
-    local branch_name = options.branch
-    local station_name = options.station
-    
-    if not branch_name then
-        print("Error: Branch name required for station mode")
-        print("Usage: timetable station <branch_name> <station_name>")
-        return
-    end
-    
-    if not station_name then
-        print("Error: Station name required for station mode")
-        print("Usage: timetable station <branch_name> <station_name>")
-        return
-    end
-    
-    local modem_side = findModem()
-    if not modem_side then
-        print("Error: No wireless modem found!")
-        return
-    end
-    
-    if options.test then
-        rednet.open(modem_side)
-        print("Using modem on " .. modem_side .. " side")
-        station_node.initializeSignals()
-        station_node.testSignal(station_name, branch_name)
-        rednet.close(modem_side)
-        return
-    end
-    
-    rednet.open(modem_side)
-    print("Using modem on " .. modem_side .. " side")
-    station_node.initializeSignals()
-    
-    print("Station node starting for: " .. branch_name .. "/" .. station_name)
-    print("Initialized redstone signals for station: " .. station_name)
-    
-    local status_timer = os.startTimer(1)
-    
-    while true do
-        local event, param1 = os.pullEvent()
-        
-        if event == "redstone" then
-            station_node.checkRedstoneSignals(station_name, branch_name)
-            
-        elseif event == "timer" and param1 == status_timer then
-            station_node.printStatus(station_name, branch_name)
-            status_timer = os.startTimer(1)
-            
-        elseif event == "char" and param1 == "q" then
-            break
-            
-        elseif event == "terminate" then
-            break
-        end
-        
-        sleep(0.05)
-    end
-    
-    rednet.close(modem_side)
-    print("Station node stopped")
-end
-
--- MAIN PROGRAM
-local function main()
-    local mode, options = parseArgs()
-    
-    if not mode or mode == "help" then
-        showHelp()
-        return
-    end
-    
-    if not options.branch then
-        print("Error: Branch name is required for all modes")
-        print("Run 'timetable help' for usage information")
-        return
-    end
-    
-    if mode == "master" then
-        master.run(options)
-    elseif mode == "monitor" then
-        monitor_node.run(options)
-    elseif mode == "station" then
-        station_node.run(options)
+        station.name = args[3]
+        station.run()
     else
-        print("Error: Invalid mode '" .. mode .. "'")
-        print("Run 'timetable help' for usage information")
-    end
+
 end
 
-main()
+local args = { ... }
+main(args)
