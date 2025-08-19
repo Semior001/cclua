@@ -10,6 +10,16 @@ This is a sophisticated train timetable tracking system for ComputerCraft that p
 2. **Monitor Node** - Visual display of timetables on ComputerCraft monitors
 3. **Station Node** - Detects train arrivals via redstone signals
 
+### System Input Limitations
+**CRITICAL**: The system can only receive one type of real-world input: **"train has arrived at station"** events from redstone signals. The system has no direct knowledge of:
+- Current train locations between stations
+- Train speeds or delays
+- Track conditions or blockages
+- Number of trains operating
+- Train departure events
+
+All predictions, timing calculations, and state estimations must be performed by the program itself based solely on arrival timestamps. This constraint shapes the entire prediction algorithm design.
+
 ### Key Features
 - **Branch Separation**: Multiple railway lines can operate independently
 - **Persistent Storage**: All data saved to disk with branch-specific files
@@ -78,13 +88,16 @@ timetable_data = {
 ```
 
 ### Prediction Algorithm
-The system implements a sophisticated linear route prediction algorithm that:
-1. Identifies the most recent train arrival across all stations
-2. Determines train direction by comparing the two most recent arrivals
-3. Handles edge cases at route endpoints (turnaround points)
-4. Calculates steps required to reach each station based on current position and direction
-5. Uses average travel time between stations for timing predictions
-6. Provides confidence scoring based on historical data quality
+The system implements a sophisticated linear route prediction algorithm that operates under strict input constraints. Since the system only receives "train arrived" events, it must:
+
+1. **Infer Train Position**: Identifies the most recent train arrival across all stations to estimate current train location
+2. **Deduce Direction**: Determines train direction by comparing the two most recent arrivals across the network
+3. **Handle Route Endpoints**: Manages edge cases at route endpoints (turnaround points) without direct departure data
+4. **Calculate Journey Steps**: Determines steps required to reach each station based on inferred position and direction
+5. **Estimate Travel Times**: Uses historical inter-station arrival patterns to predict timing
+6. **Assess Confidence**: Provides confidence scoring based on data quality and inference reliability
+
+**Key Limitation**: All train state (position, direction, timing) must be inferred from arrival events only. The system cannot directly observe trains in motion, departures, or real-time delays.
 
 ### Configuration Format
 ```lua
