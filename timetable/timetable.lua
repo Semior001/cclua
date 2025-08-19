@@ -657,96 +657,98 @@ end
 function monitor_node.drawTimetable(monitor, scale)
     monitor.setTextScale(scale)
     monitor.clear()
-    monitor.setCursorPos(1, 1)
     monitor.setTextColor(colors.white)
     monitor.setBackgroundColor(colors.black)
     
     local w, h = monitor.getSize()
     
-    monitor.write("=== TIMETABLE ===")
-    monitor.setCursorPos(1, 2)
-    monitor.write("Branch: " .. monitor_node.timetable.branch)
+    -- Center the branch header
+    local header = "=== Branch: " .. monitor_node.timetable.branch .. " ==="
+    local header_x = math.max(1, math.floor((w - #header) / 2) + 1)
+    monitor.setCursorPos(header_x, 1)
+    monitor.write(header)
     
     if monitor_node.timetable.last_update == 0 then
-        monitor.setCursorPos(1, 4)
+        monitor.setCursorPos(1, 3)
         monitor.setTextColor(colors.red)
         monitor.write("Waiting for data...")
         return
     end
     
     local current_time = os.epoch("utc") / 1000
-    local age = current_time - monitor_node.timetable.last_update
     
-    monitor.setCursorPos(1, 3)
-    monitor.setTextColor(colors.gray)
-    monitor.write("Updated: " .. monitor_node.formatTime(age) .. " ago")
-    
-    local line = 5
-    
-    monitor.setCursorPos(1, line)
-    monitor.setTextColor(colors.yellow)
-    monitor.write("NEXT ARRIVALS:")
-    line = line + 2
-    
+    -- Create sorted list of stations by closest arrival time
+    local station_arrivals = {}
     for _, station in ipairs(monitor_node.timetable.stations) do
+        local prediction = monitor_node.timetable.predictions[station]
+        local eta = nil
+        local display_text = station .. ": No data"
+        
+        if prediction then
+            eta = prediction.next_arrival - current_time
+            if eta > 0 then
+                display_text = station .. ": " .. monitor_node.formatTime(eta)
+            else
+                display_text = station .. ": OVERDUE"
+                eta = -math.abs(eta) -- Negative for overdue, for sorting
+            end
+        else
+            eta = math.huge -- No data goes to end
+        end
+        
+        table.insert(station_arrivals, {
+            station = station,
+            eta = eta,
+            display_text = display_text,
+            prediction = prediction
+        })
+    end
+    
+    -- Sort by closest arrival time (overdue items go first with most overdue first)
+    table.sort(station_arrivals, function(a, b)
+        if a.eta == math.huge and b.eta == math.huge then
+            return a.station < b.station -- Alphabetical for no-data items
+        elseif a.eta == math.huge then
+            return false -- No data goes to end
+        elseif b.eta == math.huge then
+            return true -- No data goes to end
+        elseif a.eta < 0 and b.eta < 0 then
+            return a.eta > b.eta -- Most overdue first (larger negative number)
+        elseif a.eta < 0 then
+            return true -- Overdue items first
+        elseif b.eta < 0 then
+            return false -- Overdue items first
+        else
+            return a.eta < b.eta -- Closest positive time first
+        end
+    end)
+    
+    -- Display sorted stations starting from line 3
+    local line = 3
+    for _, entry in ipairs(station_arrivals) do
         if line > h - 1 then break end
         
         monitor.setCursorPos(1, line)
-        monitor.setTextColor(colors.white)
-        monitor.write(station .. ":")
         
-        local prediction = monitor_node.timetable.predictions[station]
-        if prediction then
-            local eta = prediction.next_arrival - current_time
-            if eta > 0 then
-                monitor.setTextColor(colors.green)
-                monitor.write(" " .. monitor_node.formatTime(eta))
-                
-                if prediction.confidence < 0.5 then
-                    monitor.setTextColor(colors.orange)
-                    monitor.write(" (?)")
-                elseif prediction.confidence < 0.8 then
-                    monitor.setTextColor(colors.yellow)
-                    monitor.write(" (~)")
-                end
-            else
-                monitor.setTextColor(colors.red)
-                monitor.write(" Overdue")
-            end
-        else
+        if entry.eta == math.huge then
             monitor.setTextColor(colors.gray)
-            monitor.write(" No data")
+        elseif entry.eta < 0 then
+            monitor.setTextColor(colors.red)
+        else
+            monitor.setTextColor(colors.green)
         end
         
+        monitor.write(entry.display_text)
         line = line + 1
     end
     
-    if line < h - 5 then
-        line = line + 1
-        monitor.setCursorPos(1, line)
-        monitor.setTextColor(colors.yellow)
-        monitor.write("STATISTICS:")
-        line = line + 2
-        
-        for _, station in ipairs(monitor_node.timetable.stations) do
-            if line > h - 1 then break end
-            
-            local stats = monitor_node.timetable.statistics[station]
-            if stats then
-                monitor.setCursorPos(1, line)
-                monitor.setTextColor(colors.white)
-                monitor.write(station .. ":")
-                monitor.setTextColor(colors.cyan)
-                monitor.write(string.format(" %d trains, %s interval", 
-                    stats.total_arrivals, monitor_node.formatTime(stats.average_interval)))
-                line = line + 1
-            end
-        end
-    end
-    
-    monitor.setCursorPos(1, h)
+    -- Display "updated: X ago" in bottom-right corner
+    local age = current_time - monitor_node.timetable.last_update
+    local update_text = "updated: " .. monitor_node.formatTime(age) .. " ago"
+    local update_x = math.max(1, w - #update_text + 1)
+    monitor.setCursorPos(update_x, h)
     monitor.setTextColor(colors.gray)
-    monitor.write("Scale: " .. scale .. " | Press Ctrl+T to exit")
+    monitor.write(update_text)
 end
 
 function monitor_node.handleTimetableUpdate(message, branch_name)
