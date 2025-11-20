@@ -9,14 +9,15 @@ Made with Claude Code
 ### Client
 
 ```lua
-local httplike = require("httplike")
+local httplike = require("httplike.httplike")
 
-local response, err = httplike.do(method, url, headers, body, timeout)
+local response, err = httplike.req(method, url, headers, body, timeout)
 ```
 
 **Parameters:**
 - `method` (string): HTTP method - "GET", "POST", "PUT", "DELETE", "PATCH"
-- `url` (string): URL in format `rednet://{serverID}{path}?{query}`
+- `url` (string): URL in format `{protocol}://{host}{path}?{query}`
+  - `host` can be a computer ID (number) or hostname (string)
 - `headers` (table, optional): Request headers (default: `{}`)
 - `body` (any, optional): Request body (default: `nil`)
 - `timeout` (number, optional): Timeout in seconds (default: `5`)
@@ -30,33 +31,45 @@ local response, err = httplike.do(method, url, headers, body, timeout)
 
 **URL Format:**
 ```
-rednet://{serverID}{path}?{queryParams}
+{protocol}://{host}{path}?{queryParams}
+
+where:
+  protocol = rednet protocol name
+  host = computer ID (number) or hostname (string)
 ```
 
 **Examples:**
 ```lua
--- Simple GET
-local response, err = httplike.do("GET", "rednet://42/status")
+-- Simple GET with computer ID
+local response, err = httplike.req("GET", "myapp://42/status")
+
+-- GET with hostname (resolved via rednet.lookup)
+local response, err = httplike.req("GET", "myapp://master/status")
 
 -- GET with query params
-local response, err = httplike.do("GET", "rednet://42/users/123?format=json&detailed=true")
+local response, err = httplike.req("GET", "myapp://42/users/123?format=json&detailed=true")
 
 -- POST with body
-local response, err = httplike.do(
+local response, err = httplike.req(
     "POST",
-    "rednet://42/data",
+    "myapp://42/data",
     {["Content-Type"] = "application/json"},
     {name = "Steve", age = 25},
     10  -- 10 second timeout
 )
+
+-- Cross-protocol example
+local response, err = httplike.req("GET", "metro_timetable://master/schedule/ST-EF")
 ```
 
 ### Server
 
 ```lua
-local httplike = require("httplike")
+local httplike = require("httplike.httplike")
 
-httplike.serve({
+local server = httplike.serve({
+    protocol = "myapp",           -- required: rednet protocol
+    hostname = "master",           -- optional: register hostname via rednet.host()
     handler = function(request)
         -- Handle request
         return {
@@ -67,6 +80,9 @@ httplike.serve({
     end,
     timeout = 0  -- optional, 0 = wait forever
 })
+
+-- Later, stop the server gracefully
+server:stop()
 ```
 
 **Request Object:**

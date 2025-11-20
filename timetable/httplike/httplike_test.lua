@@ -1,7 +1,7 @@
 -- HTTP-like Library Test/Examples
 -- Made with Claude Code
 
-local httplike = require("httplike")
+local httplike = require("httplike.httplike")
 
 -- ==========================
 -- Example 1: Simple Server
@@ -12,6 +12,7 @@ local function simpleServer()
     print("Computer ID: " .. os.getComputerID())
 
     httplike.serve({
+        protocol = "myapp",
         handler = function(request)
             print(string.format("[%s] %s %s from #%d",
                 os.date("%H:%M:%S"),
@@ -80,6 +81,7 @@ local function routerServer()
     end)
 
     httplike.serve({
+        protocol = "myapp",
         handler = router:handler()
     })
 end
@@ -93,7 +95,7 @@ local function simpleClient(serverId)
 
     local response, err = httplike.req(
         "GET",
-        "rednet://" .. serverId .. "/status",
+        "myapp://" .. serverId .. "/status",
         {},
         nil,
         5
@@ -118,7 +120,7 @@ local function clientWithQuery(serverId, userId)
 
     local response, err = httplike.req(
         "GET",
-        "rednet://" .. serverId .. "/users/" .. userId .. "?format=json&detailed=true",
+        "myapp://" .. serverId .. "/users/" .. userId .. "?format=json&detailed=true",
         {},
         nil,
         5
@@ -148,7 +150,7 @@ local function clientPost(serverId)
 
     local response, err = httplike.req(
         "POST",
-        "rednet://" .. serverId .. "/data",
+        "myapp://" .. serverId .. "/data",
         { ["Content-Type"] = "application/json" },
         {
             station = "SpawnTown",
@@ -244,6 +246,7 @@ local function timetableMaster()
     end)
 
     httplike.serve({
+        protocol = "metro_timetable",
         handler = router:handler()
     })
 end
@@ -259,7 +262,7 @@ local function stationClient(masterId, stationName, branch)
 
     local response, err = httplike.req(
         "POST",
-        "rednet://" .. masterId .. "/arrival",
+        "metro_timetable://" .. masterId .. "/arrival",
         {},
         {
             station = stationName,
@@ -293,7 +296,7 @@ local function monitorClient(masterId, branch)
 
     local response, err = httplike.req(
         "GET",
-        "rednet://" .. masterId .. "/schedule/" .. branch,
+        "metro_timetable://" .. masterId .. "/schedule/" .. branch,
         {},
         nil,
         5

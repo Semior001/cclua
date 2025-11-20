@@ -5,8 +5,6 @@
 
 local httplike = {}
 
-local PROTOCOL = "httplike"
-
 -- ==========================
 -- Utility Functions
 -- ==========================
@@ -61,29 +59,37 @@ local function parseQuery(queryString)
     return query
 end
 
--- Parse rednet:// URL
--- Format: rednet://{serverID}{path}?{query}
--- Example: rednet://42/schedule/ST-EF?format=json
+-- Parse URL with protocol as scheme
+-- Format: {protocol}://{host}{path}?{query}
+-- Example: metro_timetable://master/schedule/ST-EF?format=json
+-- Host can be:
+--   - Computer ID (number): metro_timetable://42/status
+--   - Hostname (string): metro_timetable://master/schedule
 local function parseUrl(url)
     if not url then
         error("URL is required")
     end
 
-    -- Check scheme
-    if not string.match(url, "^rednet://") then
-        error("Invalid URL scheme, expected rednet://")
+    -- Extract protocol (scheme)
+    local protocol, rest = string.match(url, "^([^:]+)://(.+)$")
+    if not protocol then
+        error("Invalid URL format, expected {protocol}://{host}{path}")
     end
 
-    -- Remove scheme
-    local rest = string.sub(url, 10) -- length of "rednet://" + 1
+    -- Extract host and path+query
+    local host, pathAndQuery = string.match(rest, "^([^/]+)(.*)")
+    if not host then
+        error("Invalid URL format, host is required")
+    end
 
-    -- Extract serverID
-    local serverId, pathAndQuery = string.match(rest, "^(%d+)(.*)")
+    -- Try to parse host as number (computer ID)
+    local serverId = tonumber(host)
+    local hostname = nil
+
     if not serverId then
-        error("Invalid URL format, expected rednet://{serverID}{path}")
+        -- Host is a hostname, needs to be resolved
+        hostname = host
     end
-
-    serverId = tonumber(serverId)
 
     -- Split path and query
     local path, query
@@ -100,10 +106,25 @@ local function parseUrl(url)
     end
 
     return {
-        serverId = serverId,
+        protocol = protocol,
+        serverId = serverId,      -- Will be nil if hostname used
+        hostname = hostname,       -- Will be nil if serverId used
         path = path,
         query = parseQuery(query)
     }
+end
+
+-- Resolve hostname to server ID using rednet.lookup
+local function resolveHostname(protocol, hostname, timeout)
+    timeout = timeout or 2
+
+    local serverId = rednet.lookup(protocol, hostname)
+
+    if not serverId then
+        return nil, "Could not resolve hostname: " .. hostname
+    end
+
+    return serverId, nil
 end
 
 -- ==========================
@@ -112,12 +133,23 @@ end
 
 -- Make an HTTP-like request
 -- Usage: httplike.req(method, url, headers, body, timeout)
+-- URL format: {protocol}://{host}{path}?{query}
 -- Returns: {status, body, headers} or nil, error
 function httplike.req(method, url, headers, body, timeout)
     ensureModemOpen()
 
     -- Parse URL
     local parsed = parseUrl(url)
+    local serverId = parsed.serverId
+
+    -- Resolve hostname if needed
+    if parsed.hostname then
+        local err
+        serverId, err = resolveHostname(parsed.protocol, parsed.hostname, timeout)
+        if not serverId then
+            return nil, err
+        end
+    end
 
     -- Build request
     local request = {
@@ -131,7 +163,7 @@ function httplike.req(method, url, headers, body, timeout)
     }
 
     -- Send request
-    rednet.send(parsed.serverId, request, PROTOCOL)
+    rednet.send(serverId, request, parsed.protocol)
 
     -- Wait for response with timeout
     timeout = timeout or 5
@@ -146,11 +178,12 @@ function httplike.req(method, url, headers, body, timeout)
             local protocol = p3
 
             -- Check if this is our response
-            if protocol == PROTOCOL and
-                type(message) == "table" and
-                message.type == "http_response" and
-                message.requestId == request.id and
-                senderId == parsed.serverId then
+            if protocol == parsed.protocol and
+               type(message) == "table" and
+               message.type == "http_response" and
+               message.requestId == request.id and
+               senderId == serverId then
+
                 os.cancelTimer(timerId)
 
                 return {
@@ -159,6 +192,7 @@ function httplike.req(method, url, headers, body, timeout)
                     headers = message.headers or {}
                 }, nil
             end
+
         elseif event == "timer" and p1 == timerId then
             return nil, "request timeout"
         end
@@ -169,20 +203,53 @@ end
 -- Server API
 -- ==========================
 
--- Start HTTP-like server
--- Usage: httplike.serve({handler = function(request) ... end, timeout = 0})
+local Server = {}
+Server.__index = Server
+
+-- Create and start a server
+-- Usage: local server = httplike.serve({protocol = "myapp", hostname = "master", handler = function(req) ... end})
+-- Call server:stop() to gracefully shut down
 function httplike.serve(config)
     if not config or not config.handler then
         error("handler is required")
     end
 
+    if not config.protocol then
+        error("protocol is required")
+    end
+
     ensureModemOpen()
 
-    local handler = config.handler
-    local timeout = config.timeout or 0
+    local self = setmetatable({}, Server)
+    self.protocol = config.protocol
+    self.hostname = config.hostname
+    self.handler = config.handler
+    self.timeout = config.timeout or 0
+    self.running = true
 
-    while true do
-        local senderId, message, protocol = rednet.receive(PROTOCOL, timeout)
+    -- Register hostname if provided
+    if self.hostname then
+        -- Check if hostname is already taken
+        local existingId = rednet.lookup(self.protocol, self.hostname)
+        if existingId then
+            error(string.format(
+                "Hostname '%s' is already registered on protocol '%s' by computer #%d",
+                self.hostname,
+                self.protocol,
+                existingId
+            ))
+        end
+
+        rednet.host(self.protocol, self.hostname)
+        print("Registered hostname: " .. self.hostname .. " on protocol: " .. self.protocol)
+    end
+
+    print("Server listening on protocol: " .. self.protocol)
+    print("Computer ID: " .. os.getComputerID())
+
+    -- Start serving (yields automatically via rednet.receive)
+    while self.running do
+        local senderId, message, msgProtocol = rednet.receive(self.protocol, self.timeout)
 
         if senderId and message and type(message) == "table" and message.type == "http_request" then
             -- Build request object for handler
@@ -197,7 +264,7 @@ function httplike.serve(config)
             }
 
             -- Call handler
-            local success, result = pcall(handler, request)
+            local success, result = pcall(self.handler, request)
 
             local response
             if success then
@@ -225,15 +292,35 @@ function httplike.serve(config)
                     type = "http_response",
                     requestId = message.id,
                     status = 500,
-                    body = { error = "Internal server error: " .. tostring(result) },
+                    body = {error = "Internal server error: " .. tostring(result)},
                     headers = {}
                 }
             end
 
             -- Send response back
-            rednet.send(senderId, response, PROTOCOL)
+            rednet.send(senderId, response, msgProtocol)
         end
     end
+
+    return self
+end
+
+-- Stop the server gracefully
+function Server:stop()
+    if not self.running then
+        return false, "Server not running"
+    end
+
+    self.running = false
+
+    -- Unregister hostname if it was registered
+    if self.hostname then
+        rednet.unhost(self.protocol, self.hostname)
+        print("Unregistered hostname: " .. self.hostname)
+    end
+
+    print("Server stopped")
+    return true
 end
 
 -- ==========================
@@ -292,14 +379,14 @@ function Router:handle(request)
     if not routes then
         return {
             status = 405,
-            body = { error = "Method not allowed: " .. request.method },
+            body = {error = "Method not allowed: " .. request.method},
             headers = {}
         }
     end
 
     -- Try to match route patterns
     for _, route in ipairs(routes) do
-        local matches = { string.match(request.path, "^" .. route.pattern .. "$") }
+        local matches = {string.match(request.path, "^" .. route.pattern .. "$")}
 
         if #matches > 0 or request.path == route.pattern then
             -- Add captures to request
@@ -313,7 +400,7 @@ function Router:handle(request)
             else
                 return {
                     status = 500,
-                    body = { error = "Handler error: " .. tostring(result) },
+                    body = {error = "Handler error: " .. tostring(result)},
                     headers = {}
                 }
             end
@@ -323,7 +410,7 @@ function Router:handle(request)
     -- No route matched
     return {
         status = 404,
-        body = { error = "Not found: " .. request.method .. " " .. request.path },
+        body = {error = "Not found: " .. request.method .. " " .. request.path},
         headers = {}
     }
 end
@@ -367,7 +454,7 @@ end
 function httplike.badRequest(message, headers)
     return {
         status = 400,
-        body = { error = message or "Bad request" },
+        body = {error = message or "Bad request"},
         headers = headers or {}
     }
 end
@@ -375,7 +462,7 @@ end
 function httplike.notFound(message, headers)
     return {
         status = 404,
-        body = { error = message or "Not found" },
+        body = {error = message or "Not found"},
         headers = headers or {}
     }
 end
@@ -383,7 +470,7 @@ end
 function httplike.methodNotAllowed(message, headers)
     return {
         status = 405,
-        body = { error = message or "Method not allowed" },
+        body = {error = message or "Method not allowed"},
         headers = headers or {}
     }
 end
@@ -391,17 +478,9 @@ end
 function httplike.internalError(message, headers)
     return {
         status = 500,
-        body = { error = message or "Internal server error" },
+        body = {error = message or "Internal server error"},
         headers = headers or {}
     }
-end
-
-function httplike.loggingMiddleware(next)
-    return function(req)
-        resp = next(req)
-        print(os.date("%H:%M:%S") .. " - " .. req.method .. " " .. req.path .. " -> " .. resp.status)
-        return resp
-    end
 end
 
 return httplike
