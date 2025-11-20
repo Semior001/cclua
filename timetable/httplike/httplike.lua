@@ -421,63 +421,12 @@ function Router:handler()
     end
 end
 
--- ==========================
--- Helper Functions
--- ==========================
-
--- Response builders
-function httplike.ok(body, headers)
+-- Builds a standard HTTP-like response, 200 OK by default
+-- with empty body and headers
+function httplike.response(status, body, headers)
     return {
-        status = 200,
-        body = body,
-        headers = headers or {}
-    }
-end
-
-function httplike.created(body, headers)
-    return {
-        status = 201,
-        body = body,
-        headers = headers or {}
-    }
-end
-
-function httplike.noContent()
-    return {
-        status = 204,
-        body = nil,
-        headers = {}
-    }
-end
-
-function httplike.badRequest(message, headers)
-    return {
-        status = 400,
-        body = { error = message or "Bad request" },
-        headers = headers or {}
-    }
-end
-
-function httplike.notFound(message, headers)
-    return {
-        status = 404,
-        body = { error = message or "Not found" },
-        headers = headers or {}
-    }
-end
-
-function httplike.methodNotAllowed(message, headers)
-    return {
-        status = 405,
-        body = { error = message or "Method not allowed" },
-        headers = headers or {}
-    }
-end
-
-function httplike.internalError(message, headers)
-    return {
-        status = 500,
-        body = { error = message or "Internal server error" },
+        status = status or 200,
+        body = body or nil,
         headers = headers or {}
     }
 end
