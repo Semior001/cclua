@@ -2,6 +2,7 @@
 -- Made with Claude Code
 --
 -- Provides HTTP-style client/server communication over rednet
+---@diagnostic disable: undefined-field
 
 local httplike = {}
 
@@ -107,8 +108,8 @@ local function parseUrl(url)
 
     return {
         protocol = protocol,
-        serverId = serverId,      -- Will be nil if hostname used
-        hostname = hostname,       -- Will be nil if serverId used
+        serverId = serverId, -- Will be nil if hostname used
+        hostname = hostname, -- Will be nil if serverId used
         path = path,
         query = parseQuery(query)
     }
@@ -179,11 +180,10 @@ function httplike.req(method, url, headers, body, timeout)
 
             -- Check if this is our response
             if protocol == parsed.protocol and
-               type(message) == "table" and
-               message.type == "http_response" and
-               message.requestId == request.id and
-               senderId == serverId then
-
+                type(message) == "table" and
+                message.type == "http_response" and
+                message.requestId == request.id and
+                senderId == serverId then
                 os.cancelTimer(timerId)
 
                 return {
@@ -192,7 +192,6 @@ function httplike.req(method, url, headers, body, timeout)
                     headers = message.headers or {}
                 }, nil
             end
-
         elseif event == "timer" and p1 == timerId then
             return nil, "request timeout"
         end
@@ -292,7 +291,7 @@ function httplike.serve(config)
                     type = "http_response",
                     requestId = message.id,
                     status = 500,
-                    body = {error = "Internal server error: " .. tostring(result)},
+                    body = { error = "Internal server error: " .. tostring(result) },
                     headers = {}
                 }
             end
@@ -379,14 +378,14 @@ function Router:handle(request)
     if not routes then
         return {
             status = 405,
-            body = {error = "Method not allowed: " .. request.method},
+            body = { error = "Method not allowed: " .. request.method },
             headers = {}
         }
     end
 
     -- Try to match route patterns
     for _, route in ipairs(routes) do
-        local matches = {string.match(request.path, "^" .. route.pattern .. "$")}
+        local matches = { string.match(request.path, "^" .. route.pattern .. "$") }
 
         if #matches > 0 or request.path == route.pattern then
             -- Add captures to request
@@ -400,7 +399,7 @@ function Router:handle(request)
             else
                 return {
                     status = 500,
-                    body = {error = "Handler error: " .. tostring(result)},
+                    body = { error = "Handler error: " .. tostring(result) },
                     headers = {}
                 }
             end
@@ -410,7 +409,7 @@ function Router:handle(request)
     -- No route matched
     return {
         status = 404,
-        body = {error = "Not found: " .. request.method .. " " .. request.path},
+        body = { error = "Not found: " .. request.method .. " " .. request.path },
         headers = {}
     }
 end
@@ -454,7 +453,7 @@ end
 function httplike.badRequest(message, headers)
     return {
         status = 400,
-        body = {error = message or "Bad request"},
+        body = { error = message or "Bad request" },
         headers = headers or {}
     }
 end
@@ -462,7 +461,7 @@ end
 function httplike.notFound(message, headers)
     return {
         status = 404,
-        body = {error = message or "Not found"},
+        body = { error = message or "Not found" },
         headers = headers or {}
     }
 end
@@ -470,7 +469,7 @@ end
 function httplike.methodNotAllowed(message, headers)
     return {
         status = 405,
-        body = {error = message or "Method not allowed"},
+        body = { error = message or "Method not allowed" },
         headers = headers or {}
     }
 end
@@ -478,7 +477,7 @@ end
 function httplike.internalError(message, headers)
     return {
         status = 500,
-        body = {error = message or "Internal server error"},
+        body = { error = message or "Internal server error" },
         headers = headers or {}
     }
 end
