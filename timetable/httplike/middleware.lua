@@ -1,6 +1,6 @@
-local middleware = {}
+local logging = require("../logging/logging")
 
-function middleware.wrap(base, ...)
+local function Wrap(base, ...)
     local funcs = { ... }
     local wrapped = base
     for i = #funcs, 1, -1 do
@@ -9,12 +9,22 @@ function middleware.wrap(base, ...)
     return wrapped
 end
 
-function middleware.logging(next)
-    return function(req)
-        local res = next(req)
-        print(os.date("%m-%d %H:%M:%S") .. " - " .. req.method .. " " .. req.path .. " - " .. res.status)
-        return res
+local function Logging(level)
+    return function(next)
+        return function(req)
+            local res = next(req)
+            logging.Printf("[INFO] %s %s - %d", req.method, req.path, res.status)
+            if res.status >= 400 then
+                logging.Printf("[DEBUG] Request headers: %s", tostring(req.headers))
+                logging.Printf("[DEBUG] Request body: %s", tostring(req.body))
+                logging.Printf("[DEBUG] Response body: %s", tostring(res.body))
+            end
+            return res
+        end
     end
 end
 
-return middleware
+return {
+    Wrap = Wrap,
+    Logging = Logging,
+}

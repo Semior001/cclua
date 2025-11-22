@@ -1,5 +1,6 @@
 -- HTTP-like Library Test/Examples
 -- Made with Claude Code
+---@diagnostic disable: undefined-field
 
 local httplike = require("httplike.httplike")
 
@@ -11,7 +12,7 @@ local function simpleServer()
     print("Starting simple server...")
     print("Computer ID: " .. os.getComputerID())
 
-    httplike.serve({
+    local server = httplike.NewServer({
         protocol = "myapp",
         handler = function(request)
             print(string.format("[%s] %s %s from #%d",
@@ -20,12 +21,14 @@ local function simpleServer()
                 request.path,
                 request.senderId))
 
-            return httplike.ok({
+            return httplike.Response(200, {
                 message = "Hello from server!",
                 timestamp = os.epoch("utc") / 1000
             })
         end
     })
+
+    server:run()
 end
 
 -- ==========================
@@ -36,19 +39,19 @@ local function routerServer()
     print("Starting router server...")
     print("Computer ID: " .. os.getComputerID())
 
-    local router = httplike.Router()
+    local router = httplike.NewRouter()
 
     -- GET /
-    router:get("/", function(request)
-        return httplike.ok({
+    router:route("GET /", function(request)
+        return httplike.Response(200, {
             message = "Welcome to the API",
             endpoints = { "/status", "/users", "/data" }
         })
     end)
 
     -- GET /status
-    router:get("/status", function(request)
-        return httplike.ok({
+    router:route("GET /status", function(request)
+        return httplike.Response(200, {
             status = "online",
             uptime = os.clock(),
             id = os.getComputerID()
@@ -56,10 +59,10 @@ local function routerServer()
     end)
 
     -- GET /users/:id
-    router:get("/users/(%d+)", function(request)
+    router:route("GET /users/(%d+)", function(request)
         local userId = request.params[1]
 
-        return httplike.ok({
+        return httplike.Response(200, {
             id = tonumber(userId),
             name = "User " .. userId,
             query = request.query
@@ -67,23 +70,25 @@ local function routerServer()
     end)
 
     -- POST /data
-    router:post("/data", function(request)
+    router:route("POST /data", function(request)
         if not request.body then
-            return httplike.badRequest("Body is required")
+            return httplike.Response(400, { error = "Body is required" })
         end
 
         print("Received data: " .. textutils.serialize(request.body))
 
-        return httplike.created({
+        return httplike.Response(201, {
             received = true,
             data = request.body
         })
     end)
 
-    httplike.serve({
+    local server = httplike.NewServer({
         protocol = "myapp",
         handler = router:handler()
     })
+
+    server:run()
 end
 
 -- ==========================
@@ -93,7 +98,7 @@ end
 local function simpleClient(serverId)
     print("Making request to server #" .. serverId)
 
-    local response, err = httplike.req(
+    local response, err = httplike.Request(
         "GET",
         "myapp://" .. serverId .. "/status",
         {},
@@ -118,7 +123,7 @@ end
 local function clientWithQuery(serverId, userId)
     print("Fetching user #" .. userId .. " from server #" .. serverId)
 
-    local response, err = httplike.req(
+    local response, err = httplike.Request(
         "GET",
         "myapp://" .. serverId .. "/users/" .. userId .. "?format=json&detailed=true",
         {},
@@ -148,7 +153,7 @@ end
 local function clientPost(serverId)
     print("Sending POST request to server #" .. serverId)
 
-    local response, err = httplike.req(
+    local response, err = httplike.Request(
         "POST",
         "myapp://" .. serverId .. "/data",
         { ["Content-Type"] = "application/json" },
@@ -187,17 +192,17 @@ local function timetableMaster()
         }
     }
 
-    local router = httplike.Router()
+    local router = httplike.NewRouter()
 
     -- GET /schedule/:branch
-    router:get("/schedule/([%w%-]+)", function(request)
+    router:route("GET /schedule/([%w%-]+)", function(request)
         local branch = request.params[1]
 
         if not branches[branch] then
-            return httplike.notFound("Branch not found: " .. branch)
+            return httplike.Response(404, { error = "Branch not found: " .. branch })
         end
 
-        return httplike.ok({
+        return httplike.Response(200, {
             branch = branch,
             stations = branches[branch].stations,
             schedule = branches[branch].schedule,
@@ -206,9 +211,9 @@ local function timetableMaster()
     end)
 
     -- POST /arrival
-    router:post("/arrival", function(request)
+    router:route("POST /arrival", function(request)
         if not request.body or not request.body.station or not request.body.branch then
-            return httplike.badRequest("Missing station or branch in body")
+            return httplike.Response(400, { error = "Missing station or branch in body" })
         end
 
         local station = request.body.station
@@ -216,7 +221,7 @@ local function timetableMaster()
         local timestamp = request.body.timestamp
 
         if not branches[branch] then
-            return httplike.notFound("Branch not found: " .. branch)
+            return httplike.Response(404, { error = "Branch not found: " .. branch })
         end
 
         print(string.format("[%s] Train arrived: %s at %s",
@@ -232,23 +237,25 @@ local function timetableMaster()
 
         -- Here you would calculate schedule updates
         -- For now just acknowledge
-        return httplike.ok({ received = true })
+        return httplike.Response(200, { received = true })
     end)
 
     -- GET /branches
-    router:get("/branches", function(request)
+    router:route("GET /branches", function(request)
         local branchList = {}
         for name, _ in pairs(branches) do
             table.insert(branchList, name)
         end
 
-        return httplike.ok({ branches = branchList })
+        return httplike.Response(200, { branches = branchList })
     end)
 
-    httplike.serve({
+    local server = httplike.NewServer({
         protocol = "metro_timetable",
         handler = router:handler()
     })
+
+    server:run()
 end
 
 -- ==========================
@@ -260,7 +267,7 @@ local function stationClient(masterId, stationName, branch)
     print("Master ID: " .. masterId)
     print("Reporting arrival...")
 
-    local response, err = httplike.req(
+    local response, err = httplike.Request(
         "POST",
         "metro_timetable://" .. masterId .. "/arrival",
         {},
@@ -294,7 +301,7 @@ local function monitorClient(masterId, branch)
     print("Master ID: " .. masterId)
     print("Fetching schedule...")
 
-    local response, err = httplike.req(
+    local response, err = httplike.Request(
         "GET",
         "metro_timetable://" .. masterId .. "/schedule/" .. branch,
         {},

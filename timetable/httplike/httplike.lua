@@ -4,8 +4,6 @@
 -- Provides HTTP-style client/server communication over rednet
 ---@diagnostic disable: undefined-field
 
-local httplike = {}
-
 -- ==========================
 -- Utility Functions
 -- ==========================
@@ -136,7 +134,7 @@ end
 -- Usage: httplike.req(method, url, headers, body, timeout)
 -- URL format: {protocol}://{host}{path}?{query}
 -- Returns: {status, body, headers} or nil, error
-function httplike.req(method, url, headers, body, timeout)
+local function doRequest(method, url, headers, body, timeout)
     ensureModemOpen()
 
     -- Parse URL
@@ -202,13 +200,25 @@ end
 -- Server API
 -- ==========================
 
-local Server = {}
+local Server = {
+    protocol = nil, -- rednet protocol to listen on
+    hostname = nil, -- optional hostname to register
+    handler = nil,  -- function(request) to handle requests
+    timeout = 0,    -- timeout for rednet.receive
+    running = false -- server running state
+}
 Server.__index = Server
 
--- Create and start a server
--- Usage: local server = httplike.serve({protocol = "myapp", hostname = "master", handler = function(req) ... end})
--- Call server:stop() to gracefully shut down
-function httplike.serve(config)
+-- Create a server instance (does not register globally or start polling)
+-- Usage: local server = httplike.Server({protocol = "myapp", hostname = "master", handler = function(req) ... end})
+-- Call server:run() to register globally and start the polling loop
+-- Use parallel.waitForAny() to run server alongside other code
+-- Config:
+--   protocol (string, required): rednet protocol to listen on
+--   hostname (string, optional): hostname to register globally
+--   handler (function, required): function(request) to handle incoming requests
+--   timeout (number, optional): timeout in seconds for rednet.receive (default: 0 = no timeout)
+function Server.new(config)
     if not config or not config.handler then
         error("handler is required")
     end
@@ -224,7 +234,25 @@ function httplike.serve(config)
     self.hostname = config.hostname
     self.handler = config.handler
     self.timeout = config.timeout or 0
-    self.running = true
+    self.running = false
+
+    print("Server instance created on protocol: " .. self.protocol)
+    print("Computer ID: " .. os.getComputerID())
+    if self.hostname then
+        print("Hostname: " .. self.hostname .. " (will register on run)")
+    end
+    print("Call server:run() to start")
+
+    return self
+end
+
+-- Start the server polling loop (blocks until stop() is called)
+-- Registers hostname globally if provided, unregisters on exit
+-- Use parallel.waitForAny() to run this alongside other functions
+function Server:run()
+    if self.running then
+        return false, "Server already running"
+    end
 
     -- Register hostname if provided
     if self.hostname then
@@ -243,10 +271,10 @@ function httplike.serve(config)
         print("Registered hostname: " .. self.hostname .. " on protocol: " .. self.protocol)
     end
 
+    self.running = true
     print("Server listening on protocol: " .. self.protocol)
-    print("Computer ID: " .. os.getComputerID())
 
-    -- Start serving (yields automatically via rednet.receive)
+    -- Polling loop (yields automatically via rednet.receive)
     while self.running do
         local senderId, message, msgProtocol = rednet.receive(self.protocol, self.timeout)
 
@@ -301,24 +329,23 @@ function httplike.serve(config)
         end
     end
 
-    return self
-end
-
--- Stop the server gracefully
-function Server:stop()
-    if not self.running then
-        return false, "Server not running"
-    end
-
-    self.running = false
-
-    -- Unregister hostname if it was registered
+    -- Unregister hostname when loop exits
     if self.hostname then
         rednet.unhost(self.protocol, self.hostname)
         print("Unregistered hostname: " .. self.hostname)
     end
 
     print("Server stopped")
+end
+
+-- Stop the server gracefully (signals the run loop to exit)
+function Server:stop()
+    if not self.running then
+        return false, "Server not running"
+    end
+
+    self.running = false
+    print("Stopping server...")
     return true
 end
 
@@ -329,15 +356,27 @@ end
 local Router = {}
 Router.__index = Router
 
-function httplike.Router()
+-- Makes a new Router instance
+-- Usage: local router = httplike.Router()
+function Router.new()
     local self = setmetatable({}, Router)
     self.routes = {}
     return self
 end
 
 -- Add a route
--- router:route(method, pattern, handler)
-function Router:route(method, pattern, handler)
+-- Usage: router:route("GET /users/:id", handler)
+-- Pattern format: "{METHOD} {path_pattern}"
+function Router:route(methodAndPattern, handler)
+    -- Parse method and pattern from string
+    local method, pattern = string.match(methodAndPattern, "^(%S+)%s+(.+)$")
+
+    if not method or not pattern then
+        error("Invalid route format. Expected: 'METHOD /path', got: '" .. methodAndPattern .. "'")
+    end
+
+    method = string.upper(method)
+
     if not self.routes[method] then
         self.routes[method] = {}
     end
@@ -348,27 +387,6 @@ function Router:route(method, pattern, handler)
     })
 
     return self
-end
-
--- Convenience methods
-function Router:get(pattern, handler)
-    return self:route("GET", pattern, handler)
-end
-
-function Router:post(pattern, handler)
-    return self:route("POST", pattern, handler)
-end
-
-function Router:put(pattern, handler)
-    return self:route("PUT", pattern, handler)
-end
-
-function Router:delete(pattern, handler)
-    return self:route("DELETE", pattern, handler)
-end
-
-function Router:patch(pattern, handler)
-    return self:route("PATCH", pattern, handler)
 end
 
 -- Handle a request
@@ -421,9 +439,12 @@ function Router:handler()
     end
 end
 
--- Builds a standard HTTP-like response, 200 OK by default
--- with empty body and headers
-function httplike.response(status, body, headers)
+-- ==========================
+-- Response Helpers
+-- ==========================
+
+-- Builds a standard HTTP-like response
+local function prepareResponse(status, body, headers)
     return {
         status = status or 200,
         body = body or nil,
@@ -431,4 +452,13 @@ function httplike.response(status, body, headers)
     }
 end
 
-return httplike
+-- ==========================
+-- API
+-- ==========================
+
+return {
+    NewServer = Server.new,
+    NewRouter = Router.new,
+    Request   = doRequest,
+    Response  = prepareResponse,
+}
