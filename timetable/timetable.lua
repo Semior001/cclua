@@ -4,9 +4,9 @@ local log = require("logging.logging")
 local function help()
     print("Usage: timetable [command] [options]")
     print("Commands:")
-    print("  master  - start the timetable master server")
-    print("  station <branch> <station> - start a station client")
-    print("  monitor <branch> [scale]   - start a monitor client")
+    print("  master                              - start the timetable master server")
+    print("  station <branch> <station>          - start a station client")
+    print("  monitor <branch> [scale] [interval] - start a monitor client")
 end
 
 local config = {
@@ -44,6 +44,7 @@ local function parseArgs(args)
         config.mode = "monitor"
         config.branch = args[2]
         config.scale = tonumber(args[3]) or config.scale
+        config.interval = tonumber(args[4]) or 5
     elseif command == "unhost" then
         rednet.unhost("timetable", "master")
         print("Unhosted timetable master from rednet")
@@ -95,7 +96,9 @@ local function main(args)
         ---@diagnostic disable-next-line: undefined-global
         parallel.waitForAll(function() station:run() end, onCallQuit(function() station:stop() end))
     elseif config.mode == "monitor" then
-        error("monitor mode not implemented yet")
+        local monitor = require("timetable.monitor").new(config.branch, config.scale, config.interval)
+        ---@diagnostic disable-next-line: undefined-global
+        parallel.waitForAll(function() monitor:run() end, onCallQuit(function() monitor:stop() end))
     end
 end
 

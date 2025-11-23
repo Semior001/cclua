@@ -11,21 +11,40 @@ local middleware = require("httplike.middleware")
 
 local Branch = {
     -- edges = {
-        -- [{ from = "A", to = "B" }] = { 
+        -- ["A->B"] = { 
         --     travels = {120, 130, 125, ...}, -- last N travel times in ms
         -- }
     -- },
     -- stations = {
         -- "A", "B"
     -- },
-    -- lastArrival = {
-        -- station = "A",
-        -- at = 1763581614,
-    -- }
+    -- lastArrival = {  
+    --   -- contains up to MAX_ARRIVALS last arrivals, 
+    --   -- for evaluating the direction of movement
+    --   { station = "A", timestamp = 1763581614000 }, -- last arrival
+    --   { station = "B", timestamp = 1763581714000 }, -- the arrival before last
+    -- },
 }
 Branch.__index = Branch
 
 local MAX_TRAVELS = 10 -- maximum number of travel times to store per edge
+local MAX_ARRIVALS = 2 -- maximum number of last arrivals to store
+
+-- makes a unique key for an edge from 'from' to 'to'
+-- @param from string - starting station name
+-- @param to   string - destination station name
+-- @return string - edge key
+function Branch:edgeKey(from, to)
+    return string.format("%s->%s", from, to)
+end
+
+-- parses an edge key into its from and to stations
+-- @param key string - edge key
+-- @return table - { from = string, to = string }
+function Branch:parseEdgeKey(key)
+    local from, to = string.match(key, "^(.-)->(.-)$")
+    return { from = from, to = to }
+end
 
 -- records the arrival of the train to the specified station
 -- registers station and edge if not exist
@@ -42,89 +61,42 @@ function Branch:recordArrival(station, ts)
             self.stations[station] = true
         end
 
-        if not self.lastArrival then
+        if not self.lastArrival[1] then
             log.Printf("[DEBUG] first arrival at branch, not recording an edge %s", station)
             return
         end
 
-        if self.lastArrival.station == station then
+        if self.lastArrival[1].station == station then
             error("cannot record arrival to the same station twice in a row: " .. station)
         end
 
-        local key = { from = self.lastArrival.station, to = station }
+        local key = self:edgeKey(self.lastArrival[1].station, station)
         if not self.edges[key] then
+            log.Printf("[DEBUG] registered new edge %s->%s", self.lastArrival[1].station, station)
             self.edges[key] = { travels = {} }
         end
 
-        local travelTime = ts - self.lastArrival.timestamp
+        local travelTime = ts - self.lastArrival[1].timestamp
         table.insert(self.edges[key].travels, travelTime)
 
         if #self.edges[key].travels > MAX_TRAVELS then
             table.remove(self.edges[key].travels, 1)
         end
 
-        log.Printf("[DEBUG] recorded travel time from %s to %s: %dms",
-            self.lastArrival.station, station, travelTime)
+        log.Printf("[DEBUG] recorded travel time from %s to %s: %d ms",
+            self.lastArrival[1].station, station, travelTime)
     end)()
 
-    self.lastArrival = { station = station, timestamp = ts }
+    self.lastArrival[2] = self.lastArrival[1]
+    self.lastArrival[1] = { station = station, timestamp = ts }
 end
 
--- builds a list of branches in their order of appearence, starting from the one
--- that the train has departed from, or nil and false, if the edges list is
--- incomplete
--- requires lastArrival to be set
--- @return table<string> - ordered list of station names or nil if incomplete
-function Branch:chain()
-    if not self.lastArrival then
-        log.Printf("[DEBUG] can't build chain, lastArrival not set")
-        return nil
-    end
-
-    local findNext = function(station)
-        for key, _ in pairs(self.edges) do
-            if key.from == station then
-                return key.to
-            end
-        end
-        return nil
-    end
-
-    local currentStation = self.lastArrival.station
-    
-    log.Printf("[DEBUG] adding station to chain: %s", currentStation)
-    local chain = { currentStation }
-    currentStation = findNext(currentStation)
-    
-    while currentStation do
-        if currentStation == self.lastArrival.station then
-            -- we made a loop
-            break
-        end
-        
-        log.Printf("[DEBUG] adding station to chain: %s", currentStation)
-        if not chain[currentStation] then
-            table.insert(chain, currentStation) 
-        end
-        currentStation = findNext(currentStation)
-    end
-
-    if #chain ~= #self.stations then
-        -- didn't reach all stations, incomplete chain
-        log.Printf("[DEBUG] incomplete chain, visited %v, expected %v",
-            chain, self.stations)
-        return nil
-    end
-
-    return chain
-end
-
--- calculates the average travel time in ms between two stations
+-- calculates the average travel time in ms **directly** between two stations
 -- @param from string - starting station name
 -- @param to   string - destination station name
 -- @return number - average travel time in ms, or 0 if no data
 function Branch:averageTravelTime(from, to)
-    local key = { from = from, to = to }
+    local key = self:edgeKey(from, to)
     local edge = self.edges[key]
     if not edge then
         return 0
@@ -138,79 +110,45 @@ function Branch:averageTravelTime(from, to)
     return total / #edge.travels
 end
 
--- calculates the estimated time of arrival in ms from one station to another
--- @param ts   number - current unix timestamp
--- @param from string - starting station name
--- @param to   string - destination station name
--- @return number - eta in ms, or nil if data not available
-function Branch:eta(ts, from, to)
-    local chain = self:chain()
-    if not chain then
-        return nil
-    end
-
-    local eta = 0
-    local recording = false
-    for i = 1, #chain do
-        local station = chain[i]
-
-        if station == from then
-            recording = true
-            goto continue
-        end
-
-        if station == to then
-            break
-        end
-
-        if not recording then
-            goto continue
-        end
-
-        local prevStation = chain[i - 1]
-        local travelTime = self:averageTravelTime(prevStation, station)
-
-        if travelTime == 0 then
-            return nil
-        end
-        eta = eta + travelTime
-
-        ::continue::
-    end
-
-    local passed = ts - self.lastArrival.timestamp
-    eta = eta - passed
-    if eta < 0 then
-        log.Printf("[WARN] train already passed station %s", to)
-        eta = 0
-    end
-
-    return math.floor(eta + 0.5) -- round to nearest second
-end
-
 -- returns etas to all stations from the last arrival station
 -- @return table<string, number> - map of station name to eta in ms or nil if data not available
 function Branch:etas()
+    -- first, we need to determine the direction of travel
+    if not self.lastArrival[1] or not self.lastArrival[2] then
+        error("can't determine direction of travel, insufficient arrival data")
+    end
+    
+    local fromStation = self.lastArrival[1].station
+    local toStation = self.lastArrival[2].station
+
     local etas = {}
-    local chain = self:chain()
-    if not chain then
-        return nil
+    local visited = {}
+    
+    local function dfs(curr, accum)
+        visited[curr] = true
+
+        for edgeKey, edgeData in pairs(self.edges) do
+            local edge = self:parseEdgeKey(edgeKey)
+            if edge.from ~= curr or visited[edge.to] then
+                goto continue
+            end
+            
+            local travelTime = self:averageTravelTime(edge.from, edge.to)
+            local eta = accum + travelTime
+            if not etas[edge.to] or eta < etas[edge.to] then
+                etas[edge.to] = eta
+            end
+            dfs(edge.to, eta)
+            
+            ::continue::
+        end 
     end
 
-    for _, station in ipairs(chain) do
-        if station == self.lastArrival.station then
-            etas[station] = 0
-            goto continue
-        end
+    dfs(fromStation, 0)
 
-        local eta = self:eta(os.epoch("utc"), self.lastArrival.station, station)
-        if not eta then
-            return nil
-        end
-        etas[station] = eta
-
-        ::continue::
-    end
+    -- calculate for the return trip as well
+    local returnTravelTime = self:averageTravelTime(toStation, fromStation)
+    etas[fromStation] = returnTravelTime + etas[toStation]
 
     return etas
 end
@@ -237,13 +175,13 @@ function Master.new(fileName)
 
     local router = httplike.NewRouter()
     router:route("POST /([%w%-]+)/([%w%-]+)/arrival", function(req) 
-        return self:arrivalHandler(req) 
+        return self:handleArrival(req) 
     end)
     router:route("GET /([%w%-]+)/schedule", function(req) 
-        return self:scheduleHandler(req) 
+        return self:handleSchedule(req) 
     end)
     router:route("GET /config", function(req)
-        return self:configHandler(req)
+        return self:handleConfig(req)
     end)
 
     self.fileName = fileName or "data.luad"
@@ -278,7 +216,7 @@ end
 
 -- POST /{branch}/{station}/arrived?ts=1763581614 - register arrival at unix timestamp
 -- Response: 200 OK
-function Master:arrivalHandler(req)
+function Master:handleArrival(req)
     if req.params[1] == "" or req.params[2] == "" then
         return httplike.Response(400, "missing branch or station in URL")
     end
@@ -295,7 +233,7 @@ function Master:arrivalHandler(req)
         branch = setmetatable({}, Branch)
         branch.edges = {}
         branch.stations = {}
-        branch.lastArrival = nil
+        branch.lastArrival = {}
         self.branches[branchName] = branch
     end
 
@@ -306,34 +244,50 @@ function Master:arrivalHandler(req)
 end
 
 -- GET /{branch}/schedule
+-- calculate the schedule for the specified branch
+-- from - optional starting station, defaults to last arrival station
 -- Response: 200 OK
--- Body: { stations: = {
---   { name = "A", arrivesIn = 10 },
---   { name = "B", arrivesIn = 20 },
--- } }
-function Master:scheduleHandler(req)
+-- Body: 
+-- { 
+--   branch   = "A-Z",
+--   from     = "A",
+--   stations = {
+--     { name = "B", arrivesIn = 10 }, 
+--     { name = "C", arrivesIn = 20 },
+--     { name = "A", arrivesIn = 40 },
+--   }
+-- }
+function Master:handleSchedule(req)
+    local branchName = req.params[1]
     if not req.params[1] then
         return httplike.Response(400, "missing branch in URL")
     end
 
-    local branchName = req.params[1]
     if not self.branches[branchName] then
         return httplike.Response(404, "branch not found: " .. branchName)
     end
 
     local branch = self.branches[branchName]
     local etas = branch:etas()
-    if not etas then
-        return httplike.Response(500, "insufficient data to calculate schedule")
-    end
+    
+    local schedule = { 
+        branch = branchName,
+        from = fromStation,
+        stations = {} 
+    }
 
-    local schedule = { stations = {} }
+    local spent = os.epoch("utc") - branch.lastArrival[1].timestamp
     for station, eta in pairs(etas) do
         table.insert(schedule.stations, {
             name = station,
-            arrivesIn = eta,
+            arrivesIn = eta - spent,
         })
     end
+
+    -- sort by arrivesIn
+    table.sort(schedule.stations, function(a, b)
+        return a.arrivesIn < b.arrivesIn
+    end)
 
     return httplike.Response(200, schedule)
 end
@@ -341,7 +295,7 @@ end
 -- GET /config
 -- Response: 200 OK
 -- returns the current configuration of the master server
-function Master:configHandler(req)
+function Master:handleConfig(req)
     return httplike.Response(200, {
         branches = self.branches,
     })
@@ -387,6 +341,10 @@ function Master:load()
     self.branches = loadedBranches
     for branchName, branch in pairs(self.branches) do
         setmetatable(branch, Branch)
+    end
+    -- cleanup last arrived, as it may be stale
+    for _, branch in pairs(self.branches) do
+        branch.lastArrival = {}
     end
     log.Printf("[DEBUG] loaded master state from file: %s", self.fileName)
     return true
