@@ -74,11 +74,11 @@ local function main(args)
     if config.mode == "master" then
         local master = require("timetable.master").new()
         ---@diagnostic disable-next-line: undefined-global
-        parallel.waitForAll(master.run, onCallQuit(master.stop))
+        parallel.waitForAll(master.run, callOnQuit(master.stop))
     elseif config.mode == "station" then
         local station = require("timetable.station").new(config.station, config.branch)
         ---@diagnostic disable-next-line: undefined-global
-        parallel.waitForAll(station.run, onCallQuit(station.stop))
+        parallel.waitForAll(station.run, callOnQuit(station.stop))
     elseif config.mode == "monitor" then
         error("monitor mode not implemented yet")
     end
