@@ -76,6 +76,8 @@ function Logger:printf(fmt, ...)
     file:write(string.format("%s %s\n", timestamp, formattedMessage))
     file:flush()
     file:close()
+
+    self:logrotate()
 end
 
 local formats = {
@@ -148,6 +150,27 @@ function Logger:processVFormat(fmt, args)
     local newFmt = fmt:gsub("%%v", "%%s")
 
     return newFmt, processedArgs
+end
+
+-- logrotate removes the current log file and starts a new one
+-- if log file has reached 1MB size
+function Logger:logrotate()
+    if not self.filePath then
+        return
+    end
+
+    local file, err = io.open(self.filePath, "r")
+    if not file then
+        return
+    end
+
+    local size = file:seek("end")
+    file:close()
+
+    if size >= 1024 * 1024 then
+        os.remove(self.filePath)
+        self:printf("[INFO] log rotated, new log file created")
+    end
 end
 
 return {
