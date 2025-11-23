@@ -1,8 +1,7 @@
 -- HTTP-like Library Test/Examples
 -- Made with Claude Code
 ---@diagnostic disable: undefined-field
-
-local httplike = require("httplike.httplike")
+local httplike = require("httplike")
 
 -- ==========================
 -- Example 1: Simple Server

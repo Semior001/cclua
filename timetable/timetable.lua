@@ -3,7 +3,7 @@ local httplike = require("httplike.httplike")
 local function help()
     print("Usage: timetable [command] [options]")
     print("Commands:")
-    print("  master  <branch> - start the timetable master server")
+    print("  master  - start the timetable master server")
     print("  station <masterId> <branch> <station> - start a station client")
     print("  monitor <masterId> <branch> [scale]   - start a monitor client")
 end
@@ -58,17 +58,29 @@ local function parseArgs(args)
     return true
 end
 
+local function callOnQuit(fn)
+    ---@diagnostic disable-next-line: undefined-field
+    local _, key, _ = os.pullEvent("char")
+    if key == "q" then
+        fn()
+    end
+end
+
 local function main(args)
     if not parseArgs(args) then
         return
     end
 
     if config.mode == "master" then
-        require("timetable.master").start(config.branch)
+        local master = require("timetable.master").new()
+        ---@diagnostic disable-next-line: undefined-global
+        parallel.waitForAll(master.run, onCallQuit(master.stop))
     elseif config.mode == "station" then
-        require("timetable.station").start(config.masterId, config.branch, config.station)
+        local station = require("timetable.station").new(config.station, config.branch)
+        ---@diagnostic disable-next-line: undefined-global
+        parallel.waitForAll(station.run, onCallQuit(station.stop))
     elseif config.mode == "monitor" then
-        require("timetable.monitor").start(config.masterId, config.branch, config.scale)
+        error("monitor mode not implemented yet")
     end
 end
 

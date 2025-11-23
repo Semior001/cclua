@@ -43,6 +43,7 @@ local globalLogger = Logger.new()
 function Logger:printf(fmt, ...)
     local level = Levels.INFO
     local message = fmt
+    local args = { ... }
 
     local levelStr = string.match(fmt, "^%[(%u+)%]")
     if levelStr and Levels[levelStr] then
@@ -53,7 +54,9 @@ function Logger:printf(fmt, ...)
         return
     end
 
-    local formattedMessage = string.format(message, ...)
+    message, args = self:processVFormat(message, args)
+
+    local formattedMessage = string.format(message, args)
     local timestamp = os.date(self.dateFormat)
     print(string.format("%s %s", timestamp, formattedMessage))
 
@@ -70,6 +73,36 @@ function Logger:printf(fmt, ...)
     file:write(string.format("%s %s\n", timestamp, formattedMessage))
     file:flush()
     file:close()
+end
+
+-- Processes %v format specifiers in the log message.
+-- If %v is detected, the corresponding argument is converted using textutils.serialize.
+function Logger:processVFormat(fmt, args)
+    local processedArgs = {}
+    local argIndex = 1
+    local i = 1
+    while i <= #fmt do
+        if fmt:sub(i, i) == "%" and fmt:sub(i + 1, i + 1) == "v" then
+            local arg = args[argIndex]
+            table.insert(processedArgs, textutils.serialize(arg))
+            i = i + 2
+            argIndex = argIndex + 1
+        elseif fmt:sub(i, i) == "%" and fmt:sub(i + 1, i + 1) == "%" then
+            i = i + 2
+        else
+            i = i + 1
+        end
+    end
+
+    -- Append remaining arguments that are not %v
+    for j = argIndex, #args do
+        table.insert(processedArgs, args[j])
+    end
+
+    -- Replace %v with %s in the format string
+    local newFmt = fmt:gsub("%%v", "%%s")
+
+    return newFmt, processedArgs
 end
 
 return {
