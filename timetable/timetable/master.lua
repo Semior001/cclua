@@ -1,8 +1,9 @@
 ---@diagnostic disable: different-requires
 
-local httplike = require("../httplike/httplike")
-local log = require("../logging/logging")
-local middleware = require("../httplike/middleware")
+package.path = package.path .. ";../?.lua"
+local httplike = require("httplike.httplike")
+local log = require("logging.logging")
+local middleware = require("httplike.middleware")
 
 -- ==========================
 -- Branch

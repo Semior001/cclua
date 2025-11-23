@@ -1,7 +1,8 @@
 ---@diagnostic disable: different-requires
 
-local httplike = require("../httplike/httplike")
-local log = require("../logging/logging")
+package.path = package.path .. ";../?.lua"
+local httplike = require("httplike.httplike")
+local log = require("logging.logging")
 
 -- ==========================
 -- Station
