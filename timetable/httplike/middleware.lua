@@ -16,9 +16,9 @@ local function Logging(level)
             local res = next(req)
             log.Printf("[INFO] %s %s - %d", req.method, req.path, res.status)
             if res.status >= 400 then
-                log.Printf("[DEBUG] Request headers: %s", tostring(req.headers))
-                log.Printf("[DEBUG] Request body: %s", tostring(req.body))
-                log.Printf("[DEBUG] Response body: %s", tostring(res.body))
+                log.Printf("[DEBUG] Request headers: %v", req.headers)
+                log.Printf("[DEBUG] Request body:    %v", req.body)
+                log.Printf("[DEBUG] Response body:   %v", res.body)
             end
             return res
         end

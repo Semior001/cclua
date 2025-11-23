@@ -14,6 +14,9 @@ Logger.__index = Logger
 
 function Logger.new()
     local self = setmetatable({}, Logger)
+    self.minLevel = Levels.INFO
+    self.dateFormat = "%m-%d %H:%M:%S"
+    self.filePath = nil
     return self
 end
 
@@ -21,8 +24,8 @@ function Logger:setLevel(level)
     if not Levels[level] then
         error("invalid log level: " .. tostring(level))
     end
-
     self.minLevel = Levels[level]
+    self:printf("[DEBUG] log level set to %v", level)
 end
 
 function Logger:setDateFormat(format)
@@ -45,7 +48,7 @@ function Logger:printf(fmt, ...)
     local message = fmt
     local args = { ... }
 
-    local levelStr = string.match(fmt, "^%[(%u+)%]")
+    local levelStr = string.match(fmt, "^%[(%a+)%]%s*(.*)")
     if levelStr and Levels[levelStr] then
         level = Levels[levelStr]
     end
@@ -56,7 +59,7 @@ function Logger:printf(fmt, ...)
 
     message, args = self:processVFormat(message, args)
 
-    local formattedMessage = string.format(message, args)
+    local formattedMessage = string.format(message, table.unpack(args))
     local timestamp = os.date(self.dateFormat)
     print(string.format("%s %s", timestamp, formattedMessage))
 
@@ -75,6 +78,28 @@ function Logger:printf(fmt, ...)
     file:close()
 end
 
+local formats = {
+    ["%d"] = {},
+    ["%a"] = {},
+    ["%l"] = {},
+    ["%u"] = {},
+    ["%c"] = {},
+    ["%s"] = {},
+    ["%p"] = {},
+    ["%w"] = {},
+    ["%x"] = {},
+    ["%z"] = {},
+    ["%A"] = {},
+    ["%D"] = {},
+    ["%U"] = {},
+    ["%C"] = {},
+    ["%S"] = {},
+    ["%P"] = {},
+    ["%W"] = {},
+    ["%X"] = {},
+    ["%Z"] = {},
+}
+
 -- Processes %v format specifiers in the log message.
 -- If %v is detected, the corresponding argument is converted using textutils.serialize.
 function Logger:processVFormat(fmt, args)
@@ -82,16 +107,33 @@ function Logger:processVFormat(fmt, args)
     local argIndex = 1
     local i = 1
     while i <= #fmt do
-        if fmt:sub(i, i) == "%" and fmt:sub(i + 1, i + 1) == "v" then
-            local arg = args[argIndex]
-            table.insert(processedArgs, textutils.serialize(arg))
+        local charseq = fmt:sub(i, i+1)
+        if charseq == "%%" then
+            -- escaped % character, no format specifier
             i = i + 2
-            argIndex = argIndex + 1
-        elseif fmt:sub(i, i) == "%" and fmt:sub(i + 1, i + 1) == "%" then
-            i = i + 2
-        else
-            i = i + 1
+            goto continue
         end
+        
+        if formats[charseq] then
+            -- other format specifier
+            table.insert(processedArgs, args[argIndex])
+            argIndex = argIndex + 1
+            i = i + 2
+            goto continue
+        end
+        
+        if charseq ~= "%v" then
+            -- not a %v specifier
+            i = i + 1
+            goto continue
+        end
+        
+        local arg = args[argIndex]
+        table.insert(processedArgs, textutils.serialize(arg))
+        i = i + 2
+        argIndex = argIndex + 1
+           
+        ::continue::
     end
 
     -- Append remaining arguments that are not %v

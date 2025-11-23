@@ -22,10 +22,12 @@ end
 
 -- run starts the event loop for the station
 function Station:run()
+    self.running = true
+    log.Printf("[DEBUG] starting event loop")
     while self.running do
         ---@diagnostic disable-next-line: undefined-field
-        local event = os.pullEvent()
-        if event ~= "redstone" then
+        local event = os.pullEvent("redstone")
+        if not self:receivingRedstoneSignal() then
             goto continue
         end
 
@@ -39,7 +41,19 @@ function Station:stop()
     self.running = false
 end
 
+function Station:receivingRedstoneSignal()
+    local sides = { "top", "bottom", "left", "right", "front", "back" }
+    for _, side in ipairs(sides) do
+        if redstone.getInput(side) then
+            return true
+        end
+    end
+    return false
+end
+
 function Station:signalArrival()
+    log.Printf("[DEBUG] signaling arrival to master")
+
     local url = string.format("timetable://master/%s/%s/arrival", self.branch, self.name)
     local resp, err = httplike.Request("POST", url)
     if err or resp == nil then

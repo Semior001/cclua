@@ -4,6 +4,9 @@
 -- Provides HTTP-style client/server communication over rednet
 ---@diagnostic disable: undefined-field
 
+package.path = package.path .. ";../?.lua"
+local log = require("logging.logging")
+
 -- ==========================
 -- Utility Functions
 -- ==========================
@@ -236,13 +239,6 @@ function Server.new(config)
     self.timeout = config.timeout or 0
     self.running = false
 
-    print("Server instance created on protocol: " .. self.protocol)
-    print("Computer ID: " .. os.getComputerID())
-    if self.hostname then
-        print("Hostname: " .. self.hostname .. " (will register on run)")
-    end
-    print("Call server:run() to start")
-
     return self
 end
 
@@ -268,11 +264,11 @@ function Server:run()
         end
 
         rednet.host(self.protocol, self.hostname)
-        print("Registered hostname: " .. self.hostname .. " on protocol: " .. self.protocol)
+        log.Printf("[DEBUG] registered hostname '%s' on protocol '%s' to CID %d",
+            self.hostname, self.protocol, os.getComputerID())
     end
 
     self.running = true
-    print("Server listening on protocol: " .. self.protocol)
 
     -- Polling loop (yields automatically via rednet.receive)
     while self.running do
@@ -332,10 +328,9 @@ function Server:run()
     -- Unregister hostname when loop exits
     if self.hostname then
         rednet.unhost(self.protocol, self.hostname)
-        print("Unregistered hostname: " .. self.hostname)
+        log.Printf("[DEBUG] unregistered hostname '%s' from protocol '%s', from CID %d",
+            self.hostname, self.protocol, os.getComputerID())
     end
-
-    print("Server stopped")
 end
 
 -- Stop the server gracefully (signals the run loop to exit)

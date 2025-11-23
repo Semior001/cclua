@@ -1,11 +1,12 @@
 local httplike = require("httplike.httplike")
+local log = require("logging.logging")
 
 local function help()
     print("Usage: timetable [command] [options]")
     print("Commands:")
     print("  master  - start the timetable master server")
-    print("  station <masterId> <branch> <station> - start a station client")
-    print("  monitor <masterId> <branch> [scale]   - start a monitor client")
+    print("  station <branch> <station> - start a station client")
+    print("  monitor <branch> [scale]   - start a monitor client")
 end
 
 local config = {
@@ -17,6 +18,7 @@ local config = {
 }
 
 local function parseArgs(args)
+    log.Printf("[DEBUG] parsing args: %s", table.concat(args, " "))
     if #args == 0 then
         help()
         return false
@@ -25,30 +27,23 @@ local function parseArgs(args)
     local command = args[1]
 
     if command == "master" then
-        if not args[2] then
-            print("Error: branch required")
-            return false
-        end
         config.mode = "master"
-        config.branch = args[2]
     elseif command == "station" then
-        if not args[2] or not args[3] or not args[4] then
-            print("Error: masterId, branch, and station required")
+        if not args[2] or not args[3] then
+            print("Error: branch, and station required")
             return false
         end
         config.mode = "station"
-        config.masterId = tonumber(args[2])
-        config.branch = args[3]
-        config.station = args[4]
+        config.branch = args[2]
+        config.station = args[3]
     elseif command == "monitor" then
-        if not args[2] or not args[3] then
-            print("Error: masterId and branch required")
+        if not args[2] then
+            print("Error: branch is required")
             return false
         end
         config.mode = "monitor"
-        config.masterId = tonumber(args[2])
-        config.branch = args[3]
-        config.scale = tonumber(args[4]) or config.scale
+        config.branch = args[2]
+        config.scale = tonumber(args[3]) or config.scale
     else
         print("Error: unknown command '" .. command .. "'")
         help()
@@ -58,11 +53,16 @@ local function parseArgs(args)
     return true
 end
 
-local function callOnQuit(fn)
-    ---@diagnostic disable-next-line: undefined-field
-    local _, key, _ = os.pullEvent("char")
-    if key == "q" then
-        fn()
+local function onCallQuit(fn)
+    return function()
+        while true do
+            ---@diagnostic disable-next-line: undefined-field
+            local _, key, _ = os.pullEvent("char")
+            if key == "q" then
+                fn()
+                break
+            end
+        end
     end
 end
 
@@ -71,15 +71,25 @@ local function main(args)
         return
     end
 
+    local lgr = log.Logger.new()
+    lgr:setDateFormat("%H:%M:%S")
+    lgr:setLevel("DEBUG")
+    log.SetLogger(lgr)
+
     if config.mode == "master" then
+        log.Printf("[INFO] starting timetable master on branch '%s'", config.branch)
         local master = require("timetable.master").new()
         ---@diagnostic disable-next-line: undefined-global
-        parallel.waitForAll(master.run, callOnQuit(master.stop))
+        parallel.waitForAll(function() master:run() end, onCallQuit(function() master:stop() end))
     elseif config.mode == "station" then
+        log.Printf("[INFO] starting timetable station '%s' on branch '%s'",
+            config.station, config.branch)
         local station = require("timetable.station").new(config.station, config.branch)
         ---@diagnostic disable-next-line: undefined-global
-        parallel.waitForAll(station.run, callOnQuit(station.stop))
+        parallel.waitForAll(function() station:run() end, onCallQuit(function() station:stop() end))
     elseif config.mode == "monitor" then
+        log.Printf("[INFO] starting timetable monitor on branch '%s' with scale %d",
+            config.branch, config.scale)
         error("monitor mode not implemented yet")
     end
 end

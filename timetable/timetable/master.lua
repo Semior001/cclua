@@ -10,20 +10,22 @@ local middleware = require("httplike.middleware")
 -- ==========================
 
 local Branch = {
-    edges = {
+    -- edges = {
         -- [{ from = "A", to = "B" }] = {
         --     travels = {120, 130, 125, ...}, -- last N travel times in seconds
         -- }
-    },
-    stations = {
+    -- },
+    -- stations = {
         -- "A", "B"
-    },
-    lastArrival = {
+    -- },
+    -- lastArrival = {
         -- station = "A",
         -- at = 1763581614,
-    }
+    -- }
 }
 Branch.__index = Branch
+
+local MAX_TRAVELS = 10 -- maximum number of travel times to store per edge
 
 -- records the arrival of the train to the specified station
 -- registers station and edge if not exist
@@ -37,12 +39,16 @@ function Branch:recordArrival(station, ts)
     (function()
         if not self.stations[station] then
             log.Printf("[DEBUG] registered new station %s", station)
-            table.insert(self.stations, station)
+            self.stations[station] = true
         end
 
         if not self.lastArrival then
             log.Printf("[DEBUG] first arrival at branch, not recording an edge %s", station)
             return
+        end
+
+        if self.lastArrival.station == station then
+            error("cannot record arrival to the same station twice in a row: " .. station)
         end
 
         local key = { from = self.lastArrival.station, to = station }
@@ -52,6 +58,11 @@ function Branch:recordArrival(station, ts)
 
         local travelTime = ts - self.lastArrival.timestamp
         table.insert(self.edges[key].travels, travelTime)
+
+        if #self.edges[key].travels > MAX_TRAVELS then
+            table.remove(self.edges[key].travels, 1)
+        end
+
         log.Printf("[DEBUG] recorded travel time from %s to %s: %d seconds",
             self.lastArrival.station, station, travelTime)
     end)()
@@ -66,6 +77,7 @@ end
 -- @return table<string> - ordered list of station names or nil if incomplete
 function Branch:chain()
     if not self.lastArrival then
+        log.Printf("[DEBUG] can't build chain, lastArrival not set")
         return nil
     end
 
@@ -78,23 +90,29 @@ function Branch:chain()
         return nil
     end
 
-    local visited = {}
-
-    local chain = {}
     local currentStation = self.lastArrival.station
+    
+    log.Printf("[DEBUG] adding station to chain: %s", currentStation)
+    local chain = { currentStation }
+    currentStation = findNext(currentStation)
+    
     while currentStation do
-        if visited[currentStation] then
-            -- loop detected
+        if currentStation == self.lastArrival.station then
+            -- we made a loop
             break
         end
-
-        table.insert(chain, currentStation)
-        visited[currentStation] = true
+        
+        log.Printf("[DEBUG] adding station to chain: %s", currentStation)
+        if not chain[currentStation] then
+            table.insert(chain, currentStation) 
+        end
         currentStation = findNext(currentStation)
     end
 
     if #chain ~= #self.stations then
         -- didn't reach all stations, incomplete chain
+        log.Printf("[DEBUG] incomplete chain, visited %v, expected %v",
+            chain, self.stations)
         return nil
     end
 
@@ -217,9 +235,17 @@ function Master.new()
     local self = setmetatable({}, Master)
 
     local router = httplike.NewRouter()
-    router:route("POST /([%w%-]+)/([%w%-]+)/arrival", self.arrivalHandler)
-    router:route("GET /([%w%-]+)/schedule", self.scheduleHandler)
+    router:route("POST /([%w%-]+)/([%w%-]+)/arrival", function(req) 
+        return self:arrivalHandler(req) 
+    end)
+    router:route("GET /([%w%-]+)/schedule", function(req) 
+        return self:scheduleHandler(req) 
+    end)
+    router:route("GET /config", function(req)
+        return self:configHandler(req)
+    end)
 
+    self.branches = {}
     self.server = httplike.NewServer({
         protocol = "timetable",
         hostname = "master",
@@ -250,7 +276,7 @@ end
 -- Response: 200 OK
 function Master:arrivalHandler(req)
     if req.params[1] == "" or req.params[2] == "" then
-        return httplike.response(400, "missing branch or station in URL")
+        return httplike.Response(400, "missing branch or station in URL")
     end
 
     local branchName = req.params[1]
@@ -260,11 +286,14 @@ function Master:arrivalHandler(req)
     local branch = self.branches[branchName]
     if not self.branches[branchName] then
         branch = setmetatable({}, Branch)
+        branch.edges = {}
+        branch.stations = {}
+        branch.lastArrival = nil
         self.branches[branchName] = branch
     end
 
     branch:recordArrival(station, tonumber(ts))
-    return httplike.response(200, { message = "arrival registered" })
+    return httplike.Response(200, { message = "arrival registered" })
 end
 
 -- GET /{branch}/schedule
@@ -275,18 +304,18 @@ end
 -- } }
 function Master:scheduleHandler(req)
     if not req.params[1] then
-        return httplike.response(400, "missing branch in URL")
+        return httplike.Response(400, "missing branch in URL")
     end
 
     local branchName = req.params[1]
     if not self.branches[branchName] then
-        return httplike.response(404, "branch not found: " .. branchName)
+        return httplike.Response(404, "branch not found: " .. branchName)
     end
 
     local branch = self.branches[branchName]
     local etas = branch:etas()
     if not etas then
-        return httplike.response(500, "insufficient data to calculate schedule")
+        return httplike.Response(500, "insufficient data to calculate schedule")
     end
 
     local schedule = { stations = {} }
@@ -297,7 +326,16 @@ function Master:scheduleHandler(req)
         })
     end
 
-    return httplike.response(200, schedule)
+    return httplike.Response(200, schedule)
 end
+
+-- GET /config
+-- Response: 200 OK
+-- returns the current configuration of the master server
+function Master:configHandler(req)
+    return httplike.Response(200, {
+        branches = self.branches,
+    })
+end    
 
 return Master
