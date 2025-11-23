@@ -17,7 +17,7 @@ return {
         ["timetable/master.lua"] = "timetable/master.lua",
         ["timetable/station.lua"] = "timetable/station.lua",
         ["httplike/httplike.lua"] = "httplike/httplike.lua",
-        ["httplike/middleware.lua"] = "middleware/middleware.lua",
+        ["httplike/middleware.lua"] = "httplike/middleware.lua",
         ["logging/logging.lua"] = "logging/logging.lua",
     }
 }
