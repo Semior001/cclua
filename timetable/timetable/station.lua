@@ -55,3 +55,5 @@ function Station:signalArrival()
 
     log.Printf("[INFO] successfully signaled arrival to master")
 end
+
+return Station
