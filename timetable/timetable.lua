@@ -44,6 +44,10 @@ local function parseArgs(args)
         config.mode = "monitor"
         config.branch = args[2]
         config.scale = tonumber(args[3]) or config.scale
+    elseif command == "unhost" then
+        rednet.unhost("timetable", "master")
+        print("Unhosted timetable master from rednet")
+        return false
     else
         print("Error: unknown command '" .. command .. "'")
         help()
@@ -55,10 +59,12 @@ end
 
 local function onCallQuit(fn)
     return function()
+        log.Printf("[DEBUG] starting quit poller")
         while true do
             ---@diagnostic disable-next-line: undefined-field
-            local _, key, _ = os.pullEvent("char")
-            if key == "q" then
+            local event, key, _ = os.pullEventRaw()
+            if (event == "char" and key == "q") or event == "terminate" then
+                log.Printf("[INFO] received terminate signal, shutting down...")
                 fn()
                 break
             end
@@ -74,22 +80,21 @@ local function main(args)
     local lgr = log.Logger.new()
     lgr:setDateFormat("%H:%M:%S")
     lgr:setLevel("DEBUG")
+    lgr:setOutputFile("timetable.log")
     log.SetLogger(lgr)
 
+    log.Printf("[INFO] starting timetable, config: %v", config)
+    log.Printf("[INFO] press 'q' to quit")
+
     if config.mode == "master" then
-        log.Printf("[INFO] starting timetable master on branch '%s'", config.branch)
         local master = require("timetable.master").new()
         ---@diagnostic disable-next-line: undefined-global
         parallel.waitForAll(function() master:run() end, onCallQuit(function() master:stop() end))
     elseif config.mode == "station" then
-        log.Printf("[INFO] starting timetable station '%s' on branch '%s'",
-            config.station, config.branch)
         local station = require("timetable.station").new(config.station, config.branch)
         ---@diagnostic disable-next-line: undefined-global
         parallel.waitForAll(function() station:run() end, onCallQuit(function() station:stop() end))
     elseif config.mode == "monitor" then
-        log.Printf("[INFO] starting timetable monitor on branch '%s' with scale %d",
-            config.branch, config.scale)
         error("monitor mode not implemented yet")
     end
 end

@@ -129,7 +129,10 @@ function Logger:processVFormat(fmt, args)
         end
         
         local arg = args[argIndex]
-        table.insert(processedArgs, textutils.serialize(arg))
+        table.insert(processedArgs, textutils.serialize(arg, {
+            allow_repetitions = true,
+            compact = true,
+        }))
         i = i + 2
         argIndex = argIndex + 1
            

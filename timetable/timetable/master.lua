@@ -11,8 +11,8 @@ local middleware = require("httplike.middleware")
 
 local Branch = {
     -- edges = {
-        -- [{ from = "A", to = "B" }] = {
-        --     travels = {120, 130, 125, ...}, -- last N travel times in seconds
+        -- [{ from = "A", to = "B" }] = { 
+        --     travels = {120, 130, 125, ...}, -- last N travel times in ms
         -- }
     -- },
     -- stations = {
@@ -30,10 +30,10 @@ local MAX_TRAVELS = 10 -- maximum number of travel times to store per edge
 -- records the arrival of the train to the specified station
 -- registers station and edge if not exist
 -- @param station string - station name
--- @param ts      number - unix timestamp of arrival, defaults to os.time()
+-- @param ts      number - unix timestamp of arrival, defaults to os.epoch("utc")
 function Branch:recordArrival(station, ts)
     if ts == nil then
-        ts = os.time()
+        ts = os.epoch("utc")
     end
 
     (function()
@@ -63,7 +63,7 @@ function Branch:recordArrival(station, ts)
             table.remove(self.edges[key].travels, 1)
         end
 
-        log.Printf("[DEBUG] recorded travel time from %s to %s: %d seconds",
+        log.Printf("[DEBUG] recorded travel time from %s to %s: %dms",
             self.lastArrival.station, station, travelTime)
     end)()
 
@@ -119,10 +119,10 @@ function Branch:chain()
     return chain
 end
 
--- calculates the average travel time in seconds between two stations
+-- calculates the average travel time in ms between two stations
 -- @param from string - starting station name
 -- @param to   string - destination station name
--- @return number - average travel time in seconds, or 0 if no data
+-- @return number - average travel time in ms, or 0 if no data
 function Branch:averageTravelTime(from, to)
     local key = { from = from, to = to }
     local edge = self.edges[key]
@@ -138,11 +138,11 @@ function Branch:averageTravelTime(from, to)
     return total / #edge.travels
 end
 
--- calculates the estimated time of arrival in seconds from one station to another
+-- calculates the estimated time of arrival in ms from one station to another
 -- @param ts   number - current unix timestamp
 -- @param from string - starting station name
 -- @param to   string - destination station name
--- @return number - eta in seconds, or nil if data not available
+-- @return number - eta in ms, or nil if data not available
 function Branch:eta(ts, from, to)
     local chain = self:chain()
     if not chain then
@@ -189,7 +189,7 @@ function Branch:eta(ts, from, to)
 end
 
 -- returns etas to all stations from the last arrival station
--- @return table<string, number> - map of station name to eta in seconds or nil if data not available
+-- @return table<string, number> - map of station name to eta in ms or nil if data not available
 function Branch:etas()
     local etas = {}
     local chain = self:chain()
@@ -203,7 +203,7 @@ function Branch:etas()
             goto continue
         end
 
-        local eta = self:eta(os.time(), self.lastArrival.station, station)
+        local eta = self:eta(os.epoch("utc"), self.lastArrival.station, station)
         if not eta then
             return nil
         end
@@ -223,6 +223,7 @@ end
 -- @field branches table<string, Branch> - map of branch name to Branch instance
 -- @field server   httplike.Server      - the HTTP-like server instance
 local Master = {
+    fileName = "",
     branches = {
         -- ["A-B"] = Branch,
     },
@@ -231,7 +232,7 @@ local Master = {
 Master.__index = Master
 
 -- Makes a new instance of Master.
-function Master.new()
+function Master.new(fileName)
     local self = setmetatable({}, Master)
 
     local router = httplike.NewRouter()
@@ -245,6 +246,7 @@ function Master.new()
         return self:configHandler(req)
     end)
 
+    self.fileName = fileName or "data.luad"
     self.branches = {}
     self.server = httplike.NewServer({
         protocol = "timetable",
@@ -253,6 +255,8 @@ function Master.new()
             middleware.Logging("INFO")),
         timeout = 5, -- 5s
     })
+
+    self:load()
 
     return self
 end
@@ -281,7 +285,10 @@ function Master:arrivalHandler(req)
 
     local branchName = req.params[1]
     local station = req.params[2]
-    local ts = req.query.ts or os.time()
+    local ts = req.query.ts or os.epoch("utc")
+
+    log.Printf("[DEBUG] received request to register arrival at branch %s, station %s, ts %s",
+        branchName, station, tostring(ts))
 
     local branch = self.branches[branchName]
     if not self.branches[branchName] then
@@ -293,6 +300,8 @@ function Master:arrivalHandler(req)
     end
 
     branch:recordArrival(station, tonumber(ts))
+    self:save()
+
     return httplike.Response(200, { message = "arrival registered" })
 end
 
@@ -336,6 +345,51 @@ function Master:configHandler(req)
     return httplike.Response(200, {
         branches = self.branches,
     })
-end    
+end
+
+-- Saves the current state to file
+function Master:save()
+    local file = fs.open(self.fileName, "w")
+    if not file then
+        log.Printf("[ERROR] failed to open file for saving: %s", self.fileName)
+        return false
+    end
+
+    local data = textutils.serialize(self.branches)
+    file.write(data)
+    file.close()
+    log.Printf("[DEBUG] saved master state to file: %s", self.fileName)
+    return true
+end
+
+-- Loads the state from file
+function Master:load()
+    if not fs.exists(self.fileName) then
+        log.Printf("[WARN] data file does not exist, starting fresh: %s", self.fileName)
+        return false
+    end
+
+    local file = fs.open(self.fileName, "r")
+    if not file then
+        log.Printf("[ERROR] failed to open file for loading: %s", self.fileName)
+        return false
+    end
+
+    local data = file.readAll()
+    file.close()
+
+    local loadedBranches = textutils.unserialize(data)
+    if not loadedBranches then
+        log.Printf("[ERROR] failed to unserialize data from file: %s", self.fileName)
+        return false
+    end
+
+    self.branches = loadedBranches
+    for branchName, branch in pairs(self.branches) do
+        setmetatable(branch, Branch)
+    end
+    log.Printf("[DEBUG] loaded master state from file: %s", self.fileName)
+    return true
+end
 
 return Master
