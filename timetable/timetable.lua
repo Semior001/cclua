@@ -81,7 +81,8 @@ local function main(args)
     local lgr = log.Logger.new()
     lgr:setDateFormat("%H:%M:%S")
     lgr:setLevel("DEBUG")
-    lgr:setOutputFile("timetable.log")
+    -- logrotate doesn't work yet
+    -- lgr:setOutputFile("timetable.log")
     log.SetLogger(lgr)
 
     log.Printf("[INFO] starting timetable, config: %v", config)
