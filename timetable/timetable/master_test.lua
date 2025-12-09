@@ -13,17 +13,15 @@ testing.mock.setGlobal("fs", {
         return {
             readAll = function()
                 return [[
-{
-    [ "ST-EF" ] = {
+{[ "ST-EF" ] = {
     stations = { EndFortress = true, SpawnTown = true, Novozavodsk = true },
     edges = {
         [ "EndFortress->Novozavodsk" ] = { travels = { 247900 } },
         [ "SpawnTown->Novozavodsk"   ] = { travels = { 185100 } },
         [ "Novozavodsk->SpawnTown"   ] = { travels = { 185150 } },
         [ "Novozavodsk->EndFortress" ] = { travels = { 248100 } },
-    },
-    },
-}
+    }
+}}
 ]]
             end,
             close = function() end,
@@ -69,9 +67,15 @@ testing.suite("Branch.etas()", function()
         testing.assert.deepEqual(resp.body, {
             branch = "ST-EF",
             stations = {
-                { name = "Novozavodsk", arrivesIn = 247900.0 },
-                { name = "SpawnTown",   arrivesIn = 247900.0 + 185100.0 },
-                { name = "EndFortress", arrivesIn = 247900.0 + 185100.0 + 248100.0 },
+                { name = "Novozavodsk", arrivesIn = 247900.0 --[[EF->NZ]] },
+                { name = "SpawnTown",   arrivesIn = 247900.0 --[[EF->NZ]] + 185150.0 --[[NZ->ST]] },
+                {
+                    name = "EndFortress",
+                    arrivesIn = 247900.0 --[[EF->NZ]]
+                        + 185150.0 --[[NZ->ST]]
+                        + 185100.0 --[[ST->NZ]]
+                        + 248100.0 --[[NZ->EF]]
+                },
             }
         })
     end)
@@ -100,9 +104,50 @@ testing.suite("Branch.etas()", function()
         testing.assert.deepEqual(resp.body, {
             branch = "ST-EF",
             stations = {
-                { name = "SpawnTown",   arrivesIn = 185150.0 },
-                { name = "Novozavodsk", arrivesIn = 185150.0 + 185100.0 },
-                { name = "EndFortress", arrivesIn = 185150.0 + 185100.0 + 248100.0 },
+                { name = "SpawnTown",   arrivesIn = 185150.0 --[[NZ->ST]] },
+                { name = "Novozavodsk", arrivesIn = 185150.0 --[[NZ->ST]] + 185100.0 --[[ST->NZ]] },
+                {
+                    name = "EndFortress",
+                    arrivesIn = 185150.0 --[[NZ->ST]]
+                        + 185100.0 --[[ST->NZ]]
+                        + 248100.0 --[[NZ->EF]]
+                },
+            }
+        })
+    end)
+
+    testing.test("ST-EF: arrived to NZ from ST", function()
+        testing.mock.setGlobal("os", (function()
+            -- extend os, adding function 'epoch'
+            local originalOs = _G["os"]
+            local mockOs = {}
+            for k, v in pairs(originalOs) do
+                mockOs[k] = v
+            end
+            mockOs.epoch = function() return 1765116358704 end
+            return mockOs
+        end)())
+
+        local master = require("timetable.master").new("./testdata/data.luad")
+
+        master.branches["ST-EF"].lastArrival = {
+            { station = "Novozavodsk", timestamp = 1765116358704 },
+            { station = "SpawnTown",   timestamp = 1765116606604 },
+        }
+        local req = { params = { "ST-EF" } }
+        local resp = master:handleSchedule(req)
+        testing.assert.equal(resp.status, 200)
+        testing.assert.deepEqual(resp.body, {
+            branch = "ST-EF",
+            stations = {
+                { name = "EndFortress", arrivesIn = 248100.0 --[[NZ->EF]] },
+                { name = "Novozavodsk", arrivesIn = 248100.0 --[[NZ->EF]] + 247900.0 --[[EF->NZ]] },
+                {
+                    name = "SpawnTown",
+                    arrivesIn = 248100.0 --[[NZ->EF]]
+                        + 247900.0 --[[EF->NZ]]
+                        + 185150.0 --[[NZ->ST]]
+                },
             }
         })
     end)

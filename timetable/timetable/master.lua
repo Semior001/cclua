@@ -11,15 +11,15 @@ local middleware = require("httplike.middleware")
 
 local Branch = {
     -- edges = {
-        -- ["A->B"] = { 
-        --     travels = {120, 130, 125, ...}, -- last N travel times in ms
-        -- }
+    -- ["A->B"] = {
+    --     travels = {120, 130, 125, ...}, -- last N travel times in ms
+    -- }
     -- },
     -- stations = {
-        -- "A", "B"
+    -- "A", "B"
     -- },
-    -- lastArrival = {  
-    --   -- contains up to MAX_ARRIVALS last arrivals, 
+    -- lastArrival = {
+    --   -- contains up to MAX_ARRIVALS last arrivals,
     --   -- for evaluating the direction of movement
     --   { station = "A", timestamp = 1763581614000 }, -- last arrival
     --   { station = "B", timestamp = 1763581714000 }, -- the arrival before last
@@ -110,6 +110,30 @@ function Branch:averageTravelTime(from, to)
     return total / #edge.travels
 end
 
+-- returns the total number of stations in the branch
+-- @return number - total number of stations
+function Branch:total()
+    local count = 0
+    for _, _ in pairs(self.stations) do
+        count = count + 1
+    end
+    return count
+end
+
+-- returns the list of stations reachable from the given station
+-- @param station string - station name
+-- @return table - array of station names that can be reached from this station
+function Branch:directions(station)
+    local destinations = {}
+    for key, _ in pairs(self.edges) do
+        local edge = self:parseEdgeKey(key)
+        if edge.from == station then
+            table.insert(destinations, edge.to)
+        end
+    end
+    return destinations
+end
+
 -- returns etas to all stations from the last arrival station
 -- @return table<string, number> - map of station name to eta in ms or nil if data not available
 function Branch:etas()
@@ -117,38 +141,76 @@ function Branch:etas()
     if not self.lastArrival[1] or not self.lastArrival[2] then
         error("can't determine direction of travel, insufficient arrival data")
     end
-    
-    local fromStation = self.lastArrival[1].station
-    local toStation = self.lastArrival[2].station
 
-    local etas = {}
+    local route = {}
+
+    local curr = self.lastArrival[1].station
+    local prev = self.lastArrival[2].station
     local visited = {}
-    
-    local function dfs(curr, accum)
-        visited[curr] = true
+    local nodes = 0
 
-        for edgeKey, edgeData in pairs(self.edges) do
-            local edge = self:parseEdgeKey(edgeKey)
-            if edge.from ~= curr or visited[edge.to] then
-                goto continue
+    local total = self:total()
+    local edges = 0
+
+    local MAX_EDGES = total * 2 -- safety
+    while edges < MAX_EDGES do
+        edges = edges + 1
+        local next = nil
+
+        -- find an unvisited non-prev
+        local candidates = self:directions(curr)
+        for _, candidate in ipairs(candidates) do
+            if not visited[candidate] and candidate ~= prev then
+                next = candidate
+                break
             end
-            
-            local travelTime = self:averageTravelTime(edge.from, edge.to)
-            local eta = accum + travelTime
-            if not etas[edge.to] or eta < etas[edge.to] then
-                etas[edge.to] = eta
+        end
+
+        -- if not found - try any visited non-prev
+        if not next then
+            for _, candidate in ipairs(candidates) do
+                if candidate ~= prev then
+                    next = candidate
+                    break
+                end
             end
-            dfs(edge.to, eta)
-            
-            ::continue::
-        end 
+        end
+
+        -- if dead end - go back to prev
+        if not next and prev then
+            next = prev
+        end
+
+        -- if still no next - we're done
+        if not next then
+            break
+        end
+
+        table.insert(route, { from = curr, to = next })
+
+        if not visited[next] then
+            nodes = nodes + 1
+            visited[next] = nodes
+        end
+
+        prev, curr = curr, next
+        if curr == self.lastArrival[1].station and nodes == total then
+            break
+        end
     end
 
-    dfs(fromStation, 0)
+    local etas = {}
+    local cumulativeTime = 0
 
-    -- calculate for the return trip as well
-    local returnTravelTime = self:averageTravelTime(toStation, fromStation)
-    etas[fromStation] = returnTravelTime + etas[toStation]
+    for _, edge in ipairs(route) do
+        local travelTime = self:averageTravelTime(edge.from, edge.to)
+        if travelTime > 0 then
+            cumulativeTime = cumulativeTime + travelTime
+            if not etas[edge.to] then
+                etas[edge.to] = cumulativeTime
+            end
+        end
+    end
 
     return etas
 end
@@ -174,11 +236,11 @@ function Master.new(fileName)
     local self = setmetatable({}, Master)
 
     local router = httplike.NewRouter()
-    router:route("POST /([%w%-]+)/([%w%-]+)/arrival", function(req) 
-        return self:handleArrival(req) 
+    router:route("POST /([%w%-]+)/([%w%-]+)/arrival", function(req)
+        return self:handleArrival(req)
     end)
-    router:route("GET /([%w%-]+)/schedule", function(req) 
-        return self:handleSchedule(req) 
+    router:route("GET /([%w%-]+)/schedule", function(req)
+        return self:handleSchedule(req)
     end)
     router:route("GET /config", function(req)
         return self:handleConfig(req)
@@ -247,12 +309,12 @@ end
 -- calculate the schedule for the specified branch
 -- from - optional starting station, defaults to last arrival station
 -- Response: 200 OK
--- Body: 
--- { 
+-- Body:
+-- {
 --   branch   = "A-Z",
 --   from     = "A",
 --   stations = {
---     { name = "B", arrivesIn = 10 }, 
+--     { name = "B", arrivesIn = 10 },
 --     { name = "C", arrivesIn = 20 },
 --     { name = "A", arrivesIn = 40 },
 --   }
@@ -269,11 +331,11 @@ function Master:handleSchedule(req)
 
     local branch = self.branches[branchName]
     local etas = branch:etas()
-    
-    local schedule = { 
+
+    local schedule = {
         branch = branchName,
         from = fromStation,
-        stations = {} 
+        stations = {}
     }
 
     local spent = os.epoch("utc") - branch.lastArrival[1].timestamp

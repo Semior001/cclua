@@ -465,7 +465,7 @@ function testing.run()
                 print(string.format("    Error: %s", err))
             end
 
-            print("\n")
+            print()
         end
 
         print()
