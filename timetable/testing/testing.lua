@@ -12,6 +12,31 @@ local stats = {
     suites = {}
 }
 
+function serialize(o)
+    if type(o) == "number" then
+        return tostring(o)
+    elseif type(o) == "string" then
+        return string.format("%q", o) -- %q handles special characters
+    elseif type(o) == "boolean" then
+        return tostring(o)
+    elseif type(o) == "table" then
+        local parts = {}
+        -- print by sorted keys to have consistent output
+        local keys = {}
+        for k in pairs(o) do table.insert(keys, k) end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        for _, k in ipairs(keys) do
+            local v = o[k]
+            local key_str = type(k) == "string" and string.format("[%q]", k) or tostring(k)
+            table.insert(parts, key_str .. " = " .. serialize(v))
+        end
+
+        return "{" .. table.concat(parts, ", ") .. "}"
+    else
+        error("cannot serialize a " .. type(o))
+    end
+end
+
 -- Creates a new test suite
 -- @param name string - name of the test suite
 -- @param fn function - function containing test cases
@@ -155,8 +180,8 @@ function testing.assert.deepEqual(actual, expected, message)
     end
 
     if not deepCompare(actual, expected) then
-        error(message or string.format("tables are not equal:\nactual: %s\nexpected: %s",
-            textutils.serialize(actual), textutils.serialize(expected)))
+        error(message or string.format("tables are not equal:\n    expected: %s\n    actual:   %s",
+            serialize(expected), serialize(actual)))
     end
 end
 
@@ -180,7 +205,7 @@ function testing.mock.fn(returnValue)
     local calls = {}
 
     local mockFn = function(...)
-        local args = {...}
+        local args = { ... }
         table.insert(calls, args)
         return returnValue
     end
@@ -195,7 +220,7 @@ function testing.mock.spy(fn)
     local calls = {}
 
     local spyFn = function(...)
-        local args = {...}
+        local args = { ... }
         table.insert(calls, args)
         return fn(...)
     end
@@ -386,26 +411,7 @@ function testing.cc.init()
 
     if not _G.textutils then
         _G.textutils = {
-            serialize = function(t)
-                if type(t) ~= "table" then
-                    return tostring(t)
-                end
-                local result = "{ "
-                for k, v in pairs(t) do
-                    if type(k) == "string" then
-                        result = result .. k .. " = "
-                    end
-                    if type(v) == "table" then
-                        result = result .. "{ ... }, "
-                    elseif type(v) == "string" then
-                        result = result .. '"' .. v .. '", '
-                    else
-                        result = result .. tostring(v) .. ", "
-                    end
-                end
-                result = result .. "}"
-                return result
-            end,
+            serialize = function(o) return serialize(o) end,
             unserialize = function(s)
                 local fn, err = load("return " .. s)
                 if not fn then
@@ -458,6 +464,8 @@ function testing.run()
                 print(string.format("  ✗ %s", test.name))
                 print(string.format("    Error: %s", err))
             end
+
+            print("\n")
         end
 
         print()
