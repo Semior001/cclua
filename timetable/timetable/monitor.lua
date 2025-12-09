@@ -33,7 +33,7 @@ function Monitor:run()
         local resp, err = httplike.Request("GET", url)
         if not resp or err ~= nil then
             log.Printf("[ERROR] failed to fetch schedule: %v", err)
-            
+
             self:print({})
             os.sleep(self.interval)
             goto continue
@@ -41,7 +41,7 @@ function Monitor:run()
 
         if resp.status ~= 200 then
             log.Printf("[ERROR] unexpected status %d, response: %v", resp.status, resp.body)
-            
+
             self:print({})
             os.sleep(self.interval)
             goto continue
@@ -51,9 +51,8 @@ function Monitor:run()
         for i, station in ipairs(resp.body.stations) do
             log.Printf("[DEBUG]   %d. %s - arrives in %s", i, station.name, humanizeMS(station.arrivesIn))
         end
-        
-        self:print(resp.body.stations)
 
+        self:print(resp.body.stations)
         os.sleep(self.interval)
         ::continue::
     end
@@ -67,9 +66,9 @@ end
 
 -- prints the schedule to the monitor
 -- @param schedule table - the schedule to print in format:
--- Body: 
+-- Body:
 -- {
---   { name = "B", arrivesIn = 10 }, 
+--   { name = "B", arrivesIn = 10 },
 --   { name = "C", arrivesIn = 20 },
 --   { name = "A", arrivesIn = 40 },
 -- }
@@ -81,18 +80,18 @@ function Monitor:print(schedule)
     end
     monitor.setTextScale(self.scale)
     monitor.clear()
-    
+
     monitor.setTextColor(colors.white)
     monitor.setBackgroundColor(colors.black)
 
     local w, h = monitor.getSize()
-    local HEADER_HEIGHT = 1 
+    local HEADER_HEIGHT = 1
     local header = string.format("=== Branch: %s ===", self.branchName)
     monitor.setCursorPos(math.max(1, math.floor((w - #header) / 2 + 1)), 1)
     monitor.write(header)
 
     -- we reserve the first line for the header
-    -- we reserve last 6 characters for the arrivesIn time 
+    -- we reserve last 6 characters for the arrivesIn time
     -- with space, e.g. "59.5ms"
     local TIME_WIDTH = 6
     local NAME_WIDTH = w - TIME_WIDTH - 1
@@ -101,14 +100,14 @@ function Monitor:print(schedule)
         if i + 1 > h then
             break
         end
-        
+
         monitor.setCursorPos(1, i + HEADER_HEIGHT)
         local name = station.name
         if #name > NAME_WIDTH then
             name = name:sub(1, NAME_WIDTH - 3) .. "..."
         end
         monitor.write(name)
-        
+
         monitor.setCursorPos(NAME_WIDTH + 1, i + HEADER_HEIGHT)
 
         -- round up to seconds

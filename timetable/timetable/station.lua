@@ -7,7 +7,12 @@ local log = require("logging.logging")
 -- ==========================
 -- Station
 -- ==========================
-local Station = { name = "", branch = "", running = false }
+local Station = {
+    name = "",
+    branch = "",
+    running = false,
+    interval = 5, -- seconds
+}
 Station.__index = Station
 
 -- creates a new Station instance
@@ -17,6 +22,7 @@ function Station.new(name, branch)
     local self = setmetatable({}, Station)
     self.name = name
     self.branch = branch
+    self.interval = 5
     return self
 end
 
@@ -24,14 +30,16 @@ end
 function Station:run()
     self.running = true
     log.Printf("[DEBUG] starting event loop")
+
     while self.running do
         ---@diagnostic disable-next-line: undefined-field
-        local event = os.pullEvent("redstone")
         if not self:receivingRedstoneSignal() then
             goto continue
         end
 
         self:signalArrival()
+
+        os.sleep(self.interval)
         ::continue::
     end
 end
