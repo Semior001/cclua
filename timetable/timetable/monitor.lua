@@ -110,10 +110,13 @@ function Monitor:print(schedule)
 
         monitor.setCursorPos(NAME_WIDTH + 1, i + HEADER_HEIGHT)
 
-        -- round up to seconds
-        station.arrivesIn = math.ceil(station.arrivesIn / 1000) * 1000
-
-        monitor.write(humanizeMS(station.arrivesIn))
+        if station.arrivesIn < 0 then
+            monitor.write("OVERDUE")
+        else
+            -- round up to seconds
+            station.arrivesIn = math.ceil(station.arrivesIn / 1000) * 1000
+            monitor.write(humanizeMS(station.arrivesIn))
+        end
     end
 
     local FOOTER_HEIGHT = 1
