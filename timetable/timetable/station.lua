@@ -32,15 +32,10 @@ function Station:run()
     log.Printf("[DEBUG] starting event loop")
 
     while self.running do
-        ---@diagnostic disable-next-line: undefined-field
-        if not self:receivingRedstoneSignal() then
-            goto continue
+        if self:receivingRedstoneSignal() then
+            self:signalArrival()
         end
-
-        self:signalArrival()
-
         os.sleep(self.interval)
-        ::continue::
     end
 end
 
