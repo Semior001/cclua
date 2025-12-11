@@ -51,7 +51,7 @@ function Sound:stop()
 end
 
 function Sound:trainArrived()
-    local url = string.format("timetable://master/%s/schedule", self.branchName)
+    local url = string.format("timetable://master/%s/schedule", self.branch)
     local resp, err = httplike.Request("GET", url)
     if not resp or err ~= nil then
         log.Printf("[ERROR] failed to fetch schedule: %v", err)
@@ -63,7 +63,7 @@ function Sound:trainArrived()
         return false
     end
 
-    log.Printf("[DEBUG] received schedule for branch '%s':", self.branchName)
+    log.Printf("[DEBUG] received schedule for branch '%s':", self.branch)
     for i, station in ipairs(resp.body.stations) do
         if station.name == self.station and station.arrivesIn <= self.within then
             return true
