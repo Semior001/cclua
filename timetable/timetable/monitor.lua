@@ -3,7 +3,6 @@
 package.path = package.path .. ";../?.lua"
 local httplike = require("httplike.httplike")
 local log = require("logging.logging")
-local middleware = require("httplike.middleware")
 
 local Monitor = {
     branchName = nil,

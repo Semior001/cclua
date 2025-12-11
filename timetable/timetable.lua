@@ -6,7 +6,9 @@ local function help()
     print("Commands:")
     print("  master                              - start the timetable master server")
     print("  station <branch> <station>          - start a station client")
+    print("  sound   <branch> <station> <file>   - play a sound at train arrival")
     print("  monitor <branch> [scale] [interval] - start a monitor client")
+    print("  unhost                              - (debug) unhost the timetable master from rednet")
 end
 
 local config = {
@@ -15,6 +17,7 @@ local config = {
     branch = nil,
     station = nil,
     scale = 1,
+    file = nil,
 }
 
 local function parseArgs(args)
@@ -36,6 +39,15 @@ local function parseArgs(args)
         config.mode = "station"
         config.branch = args[2]
         config.station = args[3]
+    elseif command == "sound" then
+        if not args[2] or not args[3] or not args[4] then
+            print("Error: branch, station, and file required")
+            return false
+        end
+        config.mode = "sound"
+        config.branch = args[2]
+        config.station = args[3]
+        config.file = args[4]
     elseif command == "monitor" then
         if not args[2] then
             print("Error: branch is required")
@@ -96,6 +108,10 @@ local function main(args)
         local station = require("timetable.station").new(config.station, config.branch)
         ---@diagnostic disable-next-line: undefined-global
         parallel.waitForAll(function() station:run() end, onCallQuit(function() station:stop() end))
+    elseif config.mode == "sound" then
+        local sound = require("timetable.sound").new(config.station, config.branch, config.file)
+        ---@diagnostic disable-next-line: undefined-global
+        parallel.waitForAll(function() sound:run() end, onCallQuit(function() sound:stop() end))
     elseif config.mode == "monitor" then
         local monitor = require("timetable.monitor").new(config.branch, config.scale, config.interval)
         ---@diagnostic disable-next-line: undefined-global
