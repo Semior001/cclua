@@ -73,6 +73,20 @@ function Sound:trainArrived()
     end
 end
 
+local function iterStringChunks(str, chunkSize)
+    local index = 1
+    return function()
+        if index > #str then
+            return nil
+        end
+
+        local chunk = str:sub(index, index + chunkSize - 1)
+        index = index + chunkSize
+
+        return chunk
+    end
+end
+
 function Sound:playSound()
     local speaker = peripheral.find("speaker")
     if not speaker then
@@ -94,7 +108,7 @@ function Sound:playSound()
     end
 
     local decoder = dfpwm.make_decoder()
-    for chunk in io.lines(resp.body.file, 16 * 1024) do
+    for chunk in iterStringChunks(resp.body.file, 16 * 1024) do
         local buffer = decoder(chunk)
         while not speaker.playAudio(buffer, 3) do
             os.pullEvent("speaker_audio_empty")
