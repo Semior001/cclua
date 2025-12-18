@@ -250,6 +250,7 @@ function Master.new(fileName, soundFile)
         return self:handleSoundFile(req)
     end)
 
+    self.soundFile = soundFile
     self.fileName = fileName or "data.luad"
     self.branches = {}
     self.server = httplike.NewServer({

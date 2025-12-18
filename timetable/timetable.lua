@@ -4,7 +4,7 @@ local log = require("logging.logging")
 local function help()
     print("Usage: timetable [command] [options]")
     print("Commands:")
-    print("  master                              - start the timetable master server")
+    print("  master  [sound file location]       - start the timetable master server")
     print("  station <branch> <station>          - start a station client")
     print("  sound   <branch> <station>          - play a sound at train arrival")
     print("  monitor <branch> [scale] [interval] - start a monitor client")
@@ -17,6 +17,7 @@ local config = {
     branch = nil,
     station = nil,
     scale = 1,
+    soundFile = nil,
 }
 
 local function parseArgs(args)
@@ -30,6 +31,7 @@ local function parseArgs(args)
 
     if command == "master" then
         config.mode = "master"
+        config.soundFile = args[2] or nil
     elseif command == "station" then
         if not args[2] or not args[3] then
             print("Error: branch, and station required")
@@ -99,7 +101,7 @@ local function main(args)
     log.Printf("[INFO] press 'q' to quit")
 
     if config.mode == "master" then
-        local master = require("timetable.master").new()
+        local master = require("timetable.master").new("data.luad", config.soundFile)
         ---@diagnostic disable-next-line: undefined-global
         parallel.waitForAll(function() master:run() end, onCallQuit(function() master:stop() end))
     elseif config.mode == "station" then
