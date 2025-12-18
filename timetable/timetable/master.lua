@@ -221,18 +221,19 @@ end
 
 -- @class Master
 -- @field branches table<string, Branch> - map of branch name to Branch instance
--- @field server   httplike.Server      - the HTTP-like server instance
+-- @field server   httplike.Server       - the HTTP-like server instance
 local Master = {
     fileName = "",
     branches = {
         -- ["A-B"] = Branch,
     },
     server = nil, -- httplike.Server
+    soundFile = nil,
 }
 Master.__index = Master
 
 -- Makes a new instance of Master.
-function Master.new(fileName)
+function Master.new(fileName, soundFile)
     local self = setmetatable({}, Master)
 
     local router = httplike.NewRouter()
@@ -244,6 +245,9 @@ function Master.new(fileName)
     end)
     router:route("GET /config", function(req)
         return self:handleConfig(req)
+    end)
+    router:route("GET /([%w%-]+)/([%w%-]+)/soundfile", function(req)
+        return self:handleSoundFile(req)
     end)
 
     self.fileName = fileName or "data.luad"
@@ -274,6 +278,31 @@ end
 function Master:stop()
     log.Printf("[INFO] stopping master server...")
     self.server:stop()
+end
+
+-- GET /{branch}/{station}/soundfile - get the sound file for the specified station
+-- Response: 200 OK
+-- Body:
+-- { file = "..." } - sound file content as string
+function Master:handleSoundFile(req)
+    if req.params[1] == "" or req.params[2] == "" then
+        return httplike.Response(400, "missing branch or station in URL")
+    end
+
+    if not self.soundFile then
+        return httplike.Response(404, "no sound file configured on master")
+    end
+
+    -- TODO: per-station sound files in future
+    local file = fs.open(self.soundFile, "r")
+    if not file then
+        return httplike.Response(500, "failed to open sound file on master")
+    end
+
+    local content = file.readAll()
+    file.close()
+
+    return httplike.Response(200, { file = content })
 end
 
 -- POST /{branch}/{station}/arrived?ts=1763581614 - register arrival at unix timestamp

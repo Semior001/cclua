@@ -6,7 +6,7 @@ local function help()
     print("Commands:")
     print("  master                              - start the timetable master server")
     print("  station <branch> <station>          - start a station client")
-    print("  sound   <branch> <station> <file>   - play a sound at train arrival")
+    print("  sound   <branch> <station>          - play a sound at train arrival")
     print("  monitor <branch> [scale] [interval] - start a monitor client")
     print("  unhost                              - (debug) unhost the timetable master from rednet")
 end
@@ -17,7 +17,6 @@ local config = {
     branch = nil,
     station = nil,
     scale = 1,
-    file = nil,
 }
 
 local function parseArgs(args)
@@ -40,14 +39,13 @@ local function parseArgs(args)
         config.branch = args[2]
         config.station = args[3]
     elseif command == "sound" then
-        if not args[2] or not args[3] or not args[4] then
+        if not args[2] or not args[3] then
             print("Error: branch, station, and file required")
             return false
         end
         config.mode = "sound"
         config.branch = args[2]
         config.station = args[3]
-        config.file = args[4]
     elseif command == "monitor" then
         if not args[2] then
             print("Error: branch is required")
@@ -109,7 +107,7 @@ local function main(args)
         ---@diagnostic disable-next-line: undefined-global
         parallel.waitForAll(function() station:run() end, onCallQuit(function() station:stop() end))
     elseif config.mode == "sound" then
-        local sound = require("timetable.sound").new(config.station, config.branch, config.file)
+        local sound = require("timetable.sound").new(config.station, config.branch)
         ---@diagnostic disable-next-line: undefined-global
         parallel.waitForAll(function() sound:run() end, onCallQuit(function() sound:stop() end))
     elseif config.mode == "monitor" then

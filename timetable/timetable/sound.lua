@@ -11,7 +11,6 @@ local dfpwm = require("cc.audio.dfpwm")
 local Sound = {
     station = "",
     branch = "",
-    file = "",
     interval = 5,  -- seconds
     running = false,
     within = 5000, -- milliseconds
@@ -21,11 +20,10 @@ Sound.__index = Sound
 -- creates a new Sound instance
 -- @param station   string - station name
 -- @param branch string - branch name
-function Sound.new(station, branch, file)
+function Sound.new(station, branch)
     local self = setmetatable({}, Sound)
     self.station = station
     self.branch = branch
-    self.file = file
     self.interval = 5
     self.within = 5000
     return self
@@ -36,9 +34,13 @@ function Sound:run()
     self.running = true
     log.Printf("[DEBUG] starting event loop")
 
+    local lastPlayed = 0 -- timestamp of last played sound
+
     while self.running do
-        if self:trainArrived() then
+        local now = os.epoch("utc")
+        if self:trainArrived() and (now - lastPlayed) > 10000 then -- 10 seconds cooldown
             log.Printf("[INFO] train arrives within 5 secs, playing sound")
+            lastPlayed = now
             self:playSound()
         end
         os.sleep(self.interval)
@@ -78,8 +80,21 @@ function Sound:playSound()
         return
     end
 
+    -- get sound file from master
+    local url = string.format("timetable://master/%s/%s/soundfile", self.branch, self.station)
+    local resp, err = httplike.Request("GET", url)
+    if not resp or err ~= nil then
+        log.Printf("[ERROR] failed to fetch sound file: %v", err)
+        return
+    end
+
+    if resp.status ~= 200 then
+        log.Printf("[ERROR] unexpected status %d, response: %v", resp.status, resp.body)
+        return
+    end
+
     local decoder = dfpwm.make_decoder()
-    for chunk in io.lines(self.file, 16 * 1024) do
+    for chunk in io.lines(resp.body.file, 16 * 1024) do
         local buffer = decoder(chunk)
         while not speaker.playAudio(buffer, 3) do
             os.pullEvent("speaker_audio_empty")
